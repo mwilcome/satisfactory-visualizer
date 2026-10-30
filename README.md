@@ -40,7 +40,7 @@ Checked against satisfactory.wiki.gg at 100% clock. The picker is smelter + cons
 - **Iron Wire** — Constructor, 24 s. 5 iron ingots (12.5/min) → 9 wire (22.5/min).
 - **Cable** — Constructor, 2 s. 2 wire (60/min) → 1 cable (30/min). Opens on copper wire. Iron Wire is the other feed.
 
-Machines stay at 100%. If a stage makes more than the next stage draws, the extra backs up in that stage's buffer. The surplus path is a smart splitter, then an AWESOME Sink, then a storage container. If a stage draws more than the previous stage supplies, the plant stays up and the panel says it is underfed. Mk1 Iron Wire → Cable is that case: 45 wire/min supplied, 60 drawn.
+Machines stay at 100%. If a stage makes more than the next stage draws, the extra backs up in that stage's buffer. The surplus path is a smart splitter, then an AWESOME Sink, then a storage container. If a stage is receiving less than it needs, the plant stays up and the panel says so. Clocks stay at 100%. Mk1 Iron Wire → Cable needs 60 wire/min and receives 45.
 
 Alts that need another building (Coated Iron Plate, Steel Screws, Insulated Cable, and the rest) are not in this picker.
 

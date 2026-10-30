@@ -206,7 +206,7 @@ function renderSummary(host: HTMLElement, plant: Plant): void {
   for (const [index, line] of lines.entries()) {
     const p = document.createElement("p");
     if (index === 0) p.className = "stat";
-    else if (line.startsWith("Underfed") || line.includes(" is underfed.")) p.className = "warn";
+    else if (line.includes("is receiving")) p.className = "warn";
     p.textContent = line;
     host.append(p);
   }
@@ -218,10 +218,13 @@ function stageLines(stage: StagePlan): string[] {
   const input = recipe.inputs[0];
   const output = recipe.outputs[0];
   const noun = stage.machines === 1 ? building.name : `${building.name}s`;
-  return [
-    `${stage.machines} ${noun} · ${recipe.name} · 100%`,
-    `${itemName(input?.itemId ?? "")} in ${trim(stage.inputPerMin)} / min → ${itemName(output?.itemId ?? "")} out ${trim(stage.outputPerMin)} / min`,
-  ];
+  const lines = [`${stage.machines} ${noun} · ${recipe.name} · 100%`];
+  if (!stage.underfedNote) {
+    lines.push(
+      `${itemName(input?.itemId ?? "")} in ${trim(stage.inputPerMin)} / min → ${itemName(output?.itemId ?? "")} out ${trim(stage.outputPerMin)} / min`,
+    );
+  }
+  return lines;
 }
 
 function cite(stage: StagePlan): string {

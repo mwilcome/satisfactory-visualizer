@@ -171,7 +171,7 @@ function underfedCounts(
     counts[index - 1] = upstreamCap;
     const supply = upstreamCap * output.perMin;
     const item = ITEMS[input.itemId as keyof typeof ITEMS]?.name ?? input.itemId;
-    notes[index] = `${downstream.name} is underfed. It draws ${trim(demand)} ${item}/min. ${upstream.name} supplies ${trim(supply)}/min.`;
+    notes[index] = `${downstream.name} stays at 100%. It needs ${trim(demand)} ${item}/min and is receiving ${trim(supply)}.`;
   }
   return { counts, notes };
 }
