@@ -45,7 +45,8 @@ export type BeltRole =
   | "output-port"
   | "output-manifold"
   | "stage-link"
-  | "product-output";
+  | "product-output"
+  | "overflow-stub";
 
 export interface Belt {
   id: string;

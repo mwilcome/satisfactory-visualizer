@@ -1,4 +1,5 @@
 import { BUILDINGS, FOUNDATION_HEIGHT_M, FOUNDATION_SIZE_M, LIFT, RECIPES } from "../data/catalog";
+import { SURPLUS_EPSILON } from "../solve/chain";
 import { beltAabb, overlaps, rampAabb, solidAabb } from "./aabb";
 import type { Aabb, Plant, Solid } from "./types";
 
@@ -38,6 +39,22 @@ export function layoutIssues(plant: Plant): string[] {
     const next = plan.stages[index + 1];
     if (next && stage.outputPerMin + 1e-6 < next.inputPerMin) {
       issues.push(`${stage.recipeId} does not feed ${next.recipeId}`);
+    }
+    const overflow = plant.belts.filter((belt) => belt.role === "overflow-stub" && belt.rowId === stage.recipeId);
+    const surplus = next ? stage.outputPerMin - next.inputPerMin : 0;
+    const row = plant.rows.find((item) => item.id === stage.recipeId);
+    if (surplus > SURPLUS_EPSILON) {
+      if (overflow.length !== 1) issues.push(`${stage.recipeId} surplus has no sink stub`);
+      const stub = overflow[0];
+      if (stub && output && stub.itemId !== output.itemId) issues.push(`${stub.id} is not the surplus item`);
+      if (stub && Math.abs(stub.designPerMin - surplus) > 1e-6) {
+        issues.push(`${stage.recipeId} sink stub is not the surplus rate`);
+      }
+      if (stub && row && Math.max(stub.from.x, stub.to.x) <= row.openEndX) {
+        issues.push(`${stage.recipeId} sink stub does not enter the open end`);
+      }
+    } else if (overflow.length > 0) {
+      issues.push(`${stage.recipeId} has a sink stub without surplus`);
     }
   }
 

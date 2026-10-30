@@ -12,7 +12,7 @@ import { layoutIssues } from "./layout/invariants";
 import { buildChainPlant } from "./layout/plant";
 import type { Plant } from "./layout/types";
 import { FactoryView } from "./render/view";
-import { solveChain, type StagePlan } from "./solve/chain";
+import { SURPLUS_EPSILON, solveChain, type StagePlan } from "./solve/chain";
 import { STORAGE_KEY, parseSelection, serializeSelection } from "./ui/selection";
 
 const viewportEl = document.querySelector<HTMLElement>("#viewport");
@@ -186,8 +186,8 @@ function renderSummary(host: HTMLElement, plant: Plant): void {
     const item = itemName(recipe.outputs[0]?.itemId ?? "");
     const surplus = stage.outputPerMin - next.inputPerMin;
     lines.push(
-      surplus > 0.05
-        ? `Surplus ${trim(surplus)} ${item} / min backs up in the buffer. Clocks stay at 100%.`
+      surplus > SURPLUS_EPSILON
+        ? `Surplus ${trim(surplus)} ${item} / min backs up in the buffer. Suggestion: smart splitter on overflow → Awesome Sink, then bank. Clocks stay at 100%.`
         : `${item} balances the next machines. Clocks stay at 100%.`,
     );
   }

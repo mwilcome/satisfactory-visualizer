@@ -81,6 +81,17 @@ describe("manifold layout", () => {
       expect(plant.ramps).toHaveLength(6);
     });
   }
+
+  it("puts a sink stub on the open end only where a stage has surplus", () => {
+    const screws = buildDemoPlant(3);
+    const stubs = screws.belts.filter((belt) => belt.role === "overflow-stub");
+    expect(stubs.map((belt) => belt.rowId)).toEqual(["iron-ingot"]);
+    expect(stubs[0]?.designPerMin).toBe(27.5);
+    expect(screws.labels.some((label) => label.text === "Sink stub")).toBe(true);
+
+    const plate = buildChainPlant(solveChain("iron-plate", 3));
+    expect(plate.belts.some((belt) => belt.role === "overflow-stub")).toBe(false);
+  });
 });
 
 describe("other chains", () => {

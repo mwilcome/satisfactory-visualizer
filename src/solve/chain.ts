@@ -1,6 +1,9 @@
 import { ITEMS, RECIPES, beltByMk, machinesPerBelt, type BeltMk, type RecipeId } from "../data/catalog";
 import { CHAINS, type ChainId } from "../data/chains";
 
+/** A stage this close to the next draw is treated as balanced. */
+export const SURPLUS_EPSILON = 0.05;
+
 export interface StagePlan {
   recipeId: RecipeId;
   machines: number;

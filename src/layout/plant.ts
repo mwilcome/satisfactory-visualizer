@@ -13,7 +13,7 @@ import {
   type ItemId,
 } from "../data/catalog";
 import type { ChainId } from "../data/chains";
-import { solveChain, type ChainPlan, type StagePlan } from "../solve/chain";
+import { SURPLUS_EPSILON, solveChain, type ChainPlan, type StagePlan } from "../solve/chain";
 import type { Belt, Floor, Plant, PlantLabel, Ramp, Solid, Vec3, WalkCorridor } from "./types";
 
 /**
@@ -62,6 +62,8 @@ interface RowSpec {
   inputItem: string;
   outputItem: string;
   length: number;
+  /** Output of this stage minus the next stage's draw. Zero on the goal row. */
+  surplusPerMin: number;
 }
 
 export function buildChainPlant(plan: ChainPlan): Plant {
@@ -70,9 +72,11 @@ export function buildChainPlant(plan: ChainPlan): Plant {
   }
 
   const clearance = storyClearanceM("production");
-  const rows = plan.stages.map((stage, index) => {
+    const rows = plan.stages.map((stage, index) => {
     const recipe = RECIPES[stage.recipeId];
     const building = BUILDINGS[recipe.buildingId];
+    const next = plan.stages[index + 1];
+    const surplusPerMin = next ? stage.outputPerMin - next.inputPerMin : 0;
     const floor: Floor = {
       id: stage.recipeId,
       z: clearance * index,
@@ -93,6 +97,7 @@ export function buildChainPlant(plan: ChainPlan): Plant {
       inputItem: recipe.inputs[0]?.itemId ?? "",
       outputItem: recipe.outputs[0]?.itemId ?? "",
       length: building.length,
+      surplusPerMin,
     } satisfies RowSpec;
   });
 
@@ -353,6 +358,26 @@ function layRow(draft: Draft, row: RowSpec, openEndX: number, apron: number, mer
     text: "Open end",
     position: { x: openEndX + TILE * 0.75, y: yWalk + 0.35, z: INPUT_Z - 3 },
   });
+
+  if (row.surplusPerMin > SURPLUS_EPSILON) {
+    addBelt(
+      draft,
+      `${row.id}-overflow`,
+      { x: lastX + SPLIT / 2, y: yBelt, z: mergerZ },
+      { x: openEndX + TILE / 2, y: yBelt, z: mergerZ },
+      {
+        itemId: row.outputItem,
+        role: "overflow-stub",
+        rowId: row.id,
+        designPerMin: row.surplusPerMin,
+      },
+    );
+    draft.labels.push({
+      id: `${row.id}-sink-stub`,
+      text: "Sink stub",
+      position: { x: openEndX + TILE * 0.85, y: yWalk + 2.2, z: mergerZ },
+    });
+  }
 }
 
 function layLogistics(
