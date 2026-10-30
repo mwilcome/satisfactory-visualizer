@@ -120,6 +120,59 @@ export const CONSTRUCTOR_PARTS: SolidPart[] = [
   { size: [1.5, 1.2, 0.16], center: [0, 1.45, 4.92], material: "port" },
 ];
 
+/**
+ * Foundry: wide furnace, two input ports stacked on the centerline, one output.
+ * Footprint 10 × 10 × 9. Port centers sit on the lane belt heights (0.5 m and 2.5 m).
+ * TODO: real connectors are probably side by side. School-1 keeps them on the centerline
+ * until a measured offset is available.
+ */
+export const FOUNDRY_PARTS: SolidPart[] = [
+  { size: [10, 0.45, 10], center: [0, 0.225, 0], material: "dark" },
+  { size: [0.7, 0.55, 1.2], center: [-4.15, 0.28, -3.9], material: "dark" },
+  { size: [0.7, 0.55, 1.2], center: [4.15, 0.28, -3.9], material: "dark" },
+  { size: [0.7, 0.55, 1.2], center: [-4.15, 0.28, 3.9], material: "dark" },
+  { size: [0.7, 0.55, 1.2], center: [4.15, 0.28, 3.9], material: "dark" },
+  { size: [8.2, 4.6, 6.4], center: [0, 2.75, 0.35], material: "steel" },
+  { size: [1.15, 5.4, 7.2], center: [-4.425, 3.15, 0.1], material: "orange" },
+  { size: [1.15, 5.4, 7.2], center: [4.425, 3.15, 0.1], material: "orange" },
+  { size: [6.4, 3.6, 0.24], center: [0, 2.3, -4.88], material: "body" },
+  { size: [2.4, 1, 0.2], center: [0, 0.5, -4.9], material: "port" },
+  { size: [2.4, 1, 0.2], center: [0, 2.5, -4.9], material: "port" },
+  { size: [5.6, 0.14, 0.12], center: [0, 0.42, -4.94], material: "hazard" },
+  { size: [4.8, 3.4, 3.6], center: [0, 6.3, 0.7], material: "body" },
+  { size: [2.6, 1.6, 2.2], center: [0, 8.2, 0.9], material: "dark" },
+  { size: [1.4, 0.4, 1.4], center: [0, 8.8, 1.1], material: "steel" },
+  { size: [3.2, 1.8, 0.2], center: [0, 1.4, 4.9], material: "steel" },
+  { size: [2.2, 1, 0.2], center: [0, 0.5, 4.9], material: "port" },
+];
+
+/**
+ * Assembler: long bay, gantry, two centerline inputs, one output.
+ * Footprint 9 × 16 × 11. Same lane heights as the foundry.
+ */
+export const ASSEMBLER_PARTS: SolidPart[] = [
+  { size: [9, 0.4, 16], center: [0, 0.2, 0], material: "dark" },
+  { size: [0.7, 0.55, 1.3], center: [-3.85, 0.28, -7.1], material: "dark" },
+  { size: [0.7, 0.55, 1.3], center: [3.85, 0.28, -7.1], material: "dark" },
+  { size: [0.7, 0.55, 1.3], center: [-3.85, 0.28, 7.1], material: "dark" },
+  { size: [0.7, 0.55, 1.3], center: [3.85, 0.28, 7.1], material: "dark" },
+  { size: [7.4, 5.8, 11.5], center: [0, 3.3, 0.15], material: "steel" },
+  { size: [1.15, 6.2, 8.4], center: [-3.925, 3.5, -0.4], material: "orange" },
+  { size: [1.15, 6.2, 8.4], center: [3.925, 3.5, -0.4], material: "orange" },
+  { size: [6.2, 4.2, 0.22], center: [0, 2.4, -7.89], material: "body" },
+  { size: [2.5, 1, 0.18], center: [0, 0.5, -7.91], material: "port" },
+  { size: [2.5, 1, 0.18], center: [0, 2.5, -7.91], material: "port" },
+  { size: [5.4, 0.14, 0.12], center: [0, 0.4, -7.94], material: "hazard" },
+  { size: [8.2, 1.35, 13.2], center: [0, 10.325, 0.1], material: "orange" },
+  { size: [6.4, 0.28, 11], center: [0, 9.5, 0.15], material: "dark" },
+  { size: [0.45, 2.4, 0.45], center: [-2.6, 8.4, 4.6], material: "steel" },
+  { size: [0.45, 2.4, 0.45], center: [2.6, 8.4, 4.6], material: "steel" },
+  { size: [0.45, 2.4, 0.45], center: [-2.6, 8.4, -4.2], material: "steel" },
+  { size: [0.45, 2.4, 0.45], center: [2.6, 8.4, -4.2], material: "steel" },
+  { size: [2.4, 1.15, 0.18], center: [0, 1.2, 7.91], material: "port" },
+  { size: [3.4, 0.16, 0.12], center: [0, 2.1, 7.94], material: "orange" },
+];
+
 /** 4 × 4 × 1 splitter. Arrow on the top points toward +x (down the manifold). */
 export const SPLITTER_PARTS: SolidPart[] = [
   { size: [4, 0.72, 4], center: [0, 0.36, 0], material: "splitter" },

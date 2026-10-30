@@ -7,6 +7,8 @@
  * - Smelter (Desc_SmelterMk1_C): 5 × 10 × 8.5 m
  * - Constructor (Desc_ConstructorMk1_C): 8 × 10 × 8.5 m
  * - Foundry (Desc_FoundryMk1_C): 10 × 10 × 9 m
+ * - Assembler (Desc_AssemblerMk1_C): 9 × 16 × 11 m
+ *   https://satisfactory.wiki.gg/wiki/Assembler
  * - Conveyor Splitter / Merger: 4 × 4 m, height 2n+1 m (one unit is 1 m; stack step 2 m)
  * - Smart Splitter (Desc_ConveyorAttachmentSplitterSmart_C): 4 × 4 m, height 2n+1 m
  *   https://satisfactory.wiki.gg/wiki/Smart_Splitter
@@ -94,6 +96,16 @@ export const BUILDINGS = {
     inputs: 2,
     outputs: 1,
   },
+  assembler: {
+    id: "assembler",
+    name: "Assembler",
+    className: "Desc_AssemblerMk1_C",
+    width: 9,
+    length: 16,
+    height: 11,
+    inputs: 2,
+    outputs: 1,
+  },
   splitter: {
     id: "splitter",
     name: "Conveyor Splitter",
@@ -162,6 +174,41 @@ export type BuildingId = keyof typeof BUILDINGS;
 export const BELT = { width: 2, height: 1 } as const;
 export const LIFT = { width: 2, length: 2 } as const;
 export const WALKWAY = { width: 4, length: 4, height: 2, rise: 2 } as const;
+
+/**
+ * World coordinates are meters. Foundations stay on an 8 m grid; belt nudges do not.
+ * In game, nudge is 1 m and Ctrl-nudge is 0.5 m.
+ */
+export const INPUT_STAIR_NUDGE_M = 1;
+
+/**
+ * Vertical step between input-lane belt centers.
+ * A belt is 1 m tall, so 2 m (the splitter stack step) leaves a 1 m gap.
+ * The lanes are also nudged apart in plan. This rise is not a lift between splitters.
+ * TODO: swap in measured connector heights if a port table becomes available.
+ */
+export const INPUT_LANE_RISE_M = 2;
+
+/** Meters the lane sits farther from the machine than the innermost input. Lane 0 is farthest. */
+export function inputLaneOutboardM(lane: number, inputCount: number): number {
+  return (inputCount - 1 - lane) * INPUT_STAIR_NUDGE_M;
+}
+
+/**
+ * Manufacturer is not built in this phase. The stair helper above is the stub:
+ * four inputs would sit 0, 1, 2, and 3 m outboard, lowest farthest.
+ * Wiki 2026-10-30: 18 × 20 × 12 m, 4 conveyor inputs, 1 output.
+ * TODO: mesh, port heights, and a build once oil is not the next bound.
+ */
+export const MANUFACTURER_LATER = {
+  id: "manufacturer",
+  className: "Desc_ManufacturerMk1_C",
+  width: 18,
+  length: 20,
+  height: 12,
+  inputs: 4,
+  outputs: 1,
+} as const;
 
 /**
  * Selectable belt marks. A manifold is one mark end to end — never a mix.
@@ -310,6 +357,51 @@ export const RECIPES = {
     inputs: [{ itemId: "wire", perCycle: 2, perMin: 60 }],
     outputs: [{ itemId: "cable", perCycle: 1, perMin: 30 }],
   },
+  // https://satisfactory.wiki.gg/wiki/Steel_Ingot — Foundry, 4 s.
+  // 3 Iron Ore (45/min) + 3 Coal (45/min) → 3 Steel Ingot (45/min).
+  "steel-ingot": {
+    id: "steel-ingot",
+    name: "Steel Ingot",
+    alternate: false,
+    className: "Recipe_IngotSteel_C",
+    buildingId: "foundry",
+    cycleSeconds: 4,
+    inputs: [
+      { itemId: "iron-ore", perCycle: 3, perMin: 45 },
+      { itemId: "coal", perCycle: 3, perMin: 45 },
+    ],
+    outputs: [{ itemId: "steel-ingot", perCycle: 3, perMin: 45 }],
+  },
+  // https://satisfactory.wiki.gg/wiki/Iron_Ingot — Iron Alloy Ingot. Foundry, 12 s.
+  // 8 Iron Ore (40/min) + 2 Copper Ore (10/min) → 15 Iron Ingot (75/min).
+  "iron-alloy-ingot": {
+    id: "iron-alloy-ingot",
+    name: "Iron Alloy Ingot",
+    alternate: true,
+    className: "Recipe_Alternate_IngotIron_C",
+    buildingId: "foundry",
+    cycleSeconds: 12,
+    inputs: [
+      { itemId: "iron-ore", perCycle: 8, perMin: 40 },
+      { itemId: "copper-ore", perCycle: 2, perMin: 10 },
+    ],
+    outputs: [{ itemId: "iron-ingot", perCycle: 15, perMin: 75 }],
+  },
+  // https://satisfactory.wiki.gg/wiki/Reinforced_Iron_Plate — Assembler, 12 s.
+  // 6 Iron Plate (30/min) + 12 Screws (60/min) → 1 Reinforced Iron Plate (5/min).
+  "reinforced-iron-plate": {
+    id: "reinforced-iron-plate",
+    name: "Reinforced Iron Plate",
+    alternate: false,
+    className: "Recipe_IronPlateReinforced_C",
+    buildingId: "assembler",
+    cycleSeconds: 12,
+    inputs: [
+      { itemId: "iron-plate", perCycle: 6, perMin: 30 },
+      { itemId: "screw", perCycle: 12, perMin: 60 },
+    ],
+    outputs: [{ itemId: "reinforced-iron-plate", perCycle: 1, perMin: 5 }],
+  },
 } as const satisfies Record<string, Recipe>;
 
 export type RecipeId = keyof typeof RECIPES;
@@ -324,6 +416,9 @@ export const ITEMS = {
   "copper-ingot": { id: "copper-ingot", name: "Copper Ingot" },
   wire: { id: "wire", name: "Wire" },
   cable: { id: "cable", name: "Cable" },
+  coal: { id: "coal", name: "Coal" },
+  "steel-ingot": { id: "steel-ingot", name: "Steel Ingot" },
+  "reinforced-iron-plate": { id: "reinforced-iron-plate", name: "Reinforced Iron Plate" },
 } as const;
 
 export type ItemId = keyof typeof ITEMS;

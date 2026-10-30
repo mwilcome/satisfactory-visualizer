@@ -173,8 +173,7 @@ function renderSummary(host: HTMLElement, plant: Plant): void {
   for (const [index, stage] of plan.stages.entries()) {
     const recipe = RECIPES[stage.recipeId];
     const building = BUILDINGS[recipe.buildingId];
-    const noun = stage.machines === 1 ? building.name : `${building.name}s`;
-    lines.push(`count:${stage.machines} ${noun} · Floor ${index + 1}`);
+    lines.push(`count:${stage.machines} ${plural(building.name, stage.machines)} · Floor ${index + 1}`);
   }
   if (plan.limitNote) lines.push(plan.limitNote);
   for (const stage of plan.stages) {
@@ -182,25 +181,26 @@ function renderSummary(host: HTMLElement, plant: Plant): void {
   }
   lines.push(`Mk${plan.beltMk} belt · ${plan.beltPerMin} items/min on every line`);
   for (const stage of plan.stages) lines.push(...stageLines(stage));
-  for (let index = 0; index < plan.stages.length - 1; index += 1) {
-    const stage = plan.stages[index];
-    const next = plan.stages[index + 1];
-    if (!stage || !next) continue;
+  for (const stage of plan.stages) {
+    if (stage.drawnPerMin <= 0) continue;
     const recipe = RECIPES[stage.recipeId];
     const item = itemName(recipe.outputs[0]?.itemId ?? "");
-    const surplus = stage.outputPerMin - next.inputPerMin;
-    if (next.underfedNote) continue;
-    lines.push(
-      surplus > SURPLUS_EPSILON
-        ? `Surplus ${trim(surplus)} ${item} / min. Feed end: smart splitter, Any to the bank, Overflow out (to sink). Clocks stay at 100%.`
-        : `${item} balances the next machines. Clocks stay at 100%.`,
-    );
+    if (stage.surplusPerMin > SURPLUS_EPSILON) {
+      lines.push(
+        `Surplus ${trim(stage.surplusPerMin)} ${item} / min. Feed end: smart splitter, Any to the bank, Overflow out (to sink). Clocks stay at 100%.`,
+      );
+    } else if (Math.abs(stage.outputPerMin - stage.drawnPerMin) <= SURPLUS_EPSILON) {
+      lines.push(`${item} balances the next machines. Clocks stay at 100%.`);
+    }
   }
   const seen = new Set<string>();
   for (const stage of plan.stages) {
     if (seen.has(stage.recipeId)) continue;
     seen.add(stage.recipeId);
     lines.push(cite(stage));
+  }
+  if (plan.stages.some((stage) => (RECIPES[stage.recipeId].inputs.length ?? 0) > 1)) {
+    lines.push("Input lanes step 1 m outward per height. The lowest lane is farthest from the machines.");
   }
   lines.push("1 m foundations, 8 m grid. Floors are 3 wall-heights (12 m) apart.");
   lines.push("Walk the gaps between machines. The ramp is at the feed end.");
@@ -221,23 +221,24 @@ function renderSummary(host: HTMLElement, plant: Plant): void {
 function stageLines(stage: StagePlan): string[] {
   const recipe = RECIPES[stage.recipeId];
   const building = BUILDINGS[recipe.buildingId];
-  const input = recipe.inputs[0];
   const output = recipe.outputs[0];
-  const noun = stage.machines === 1 ? building.name : `${building.name}s`;
-  const lines = [`${stage.machines} ${noun} · ${recipe.name} · 100%`];
+  const lines = [`${stage.machines} ${plural(building.name, stage.machines)} · ${recipe.name} · 100%`];
   if (!stage.underfedNote) {
-    lines.push(
-      `${itemName(input?.itemId ?? "")} in ${trim(stage.inputPerMin)} / min → ${itemName(output?.itemId ?? "")} out ${trim(stage.outputPerMin)} / min`,
-    );
+    const inputs = recipe.inputs
+      .map((stack, index) => `${itemName(stack.itemId)} in ${trim(stage.inputsPerMin[index] ?? 0)} / min`)
+      .join(" + ");
+    lines.push(`${inputs} → ${itemName(output?.itemId ?? "")} out ${trim(stage.outputPerMin)} / min`);
   }
   return lines;
 }
 
 function cite(stage: StagePlan): string {
   const recipe = RECIPES[stage.recipeId];
-  const input = recipe.inputs[0];
+  const inputs = recipe.inputs
+    .map((stack) => `${stack.perCycle} × ${itemName(stack.itemId)} (${trim(stack.perMin)}/min)`)
+    .join(" + ");
   const output = recipe.outputs[0];
-  return `${recipe.name}: ${input?.perCycle ?? "?"} × ${itemName(input?.itemId ?? "")} (${trim(input?.perMin ?? 0)}/min) → ${output?.perCycle ?? "?"} × ${itemName(output?.itemId ?? "")} (${trim(output?.perMin ?? 0)}/min) in ${recipe.cycleSeconds} s.`;
+  return `${recipe.name}: ${inputs} → ${output?.perCycle ?? "?"} × ${itemName(output?.itemId ?? "")} (${trim(output?.perMin ?? 0)}/min) in ${recipe.cycleSeconds} s.`;
 }
 
 function itemName(itemId: string): string {
@@ -247,6 +248,12 @@ function itemName(itemId: string): string {
 
 function isItemId(itemId: string): itemId is ItemId {
   return Object.prototype.hasOwnProperty.call(ITEMS, itemId);
+}
+
+function plural(name: string, count: number): string {
+  if (count === 1) return name;
+  if (name === "Foundry") return "Foundries";
+  return `${name}s`;
 }
 
 function trim(value: number): string {

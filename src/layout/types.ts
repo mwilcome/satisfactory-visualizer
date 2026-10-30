@@ -36,6 +36,8 @@ export interface Solid {
   recipeId?: string;
   clock?: 100;
   rowIndex?: number;
+  /** Input lane. 0 is the lowest and the farthest from the machine. */
+  lane?: number;
   /** Manifold lane id. One row per production stage. */
   rowId?: string;
 }
@@ -68,6 +70,8 @@ export interface Ramp {
   from: Vec3;
   to: Vec3;
   width: number;
+  /** Rise climbs 2 m over 4 m. A landing is flat and joins the two runs of a story. */
+  kind: "rise" | "landing";
 }
 
 export interface Floor {
