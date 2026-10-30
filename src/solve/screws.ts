@@ -1,9 +1,5 @@
-import {
-  type BeltMk,
-  RECIPES,
-  beltByMk,
-  machinesPerBelt,
-} from "../data/catalog";
+import type { BeltMk } from "../data/catalog";
+import { solveChain } from "./chain";
 
 export interface ScrewPlan {
   beltMk: BeltMk;
@@ -24,38 +20,21 @@ export interface ScrewPlan {
  * back up into the stage buffer — clocks are not lowered to soak it up.
  */
 export function solveScrewsFromIron(beltMk: BeltMk): ScrewPlan {
-  const belt = beltByMk(beltMk);
-  const screws = RECIPES["cast-screw"];
-  const ingots = RECIPES["iron-ingot"];
-  const screwOut = screws.outputs[0].perMin;
-  const screwIn = screws.inputs[0].perMin;
-  const ingotOut = ingots.outputs[0].perMin;
-
-  const constructors = machinesPerBelt(screws, belt.perMin);
-  if (constructors < 1) {
-    throw new Error(`Mk${beltMk} cannot feed a single Cast Screws constructor.`);
-  }
-
-  const ingotsConsumedPerMin = constructors * screwIn;
-  const smelters = Math.ceil(ingotsConsumedPerMin / ingotOut - 1e-9);
-  const smelterCap = machinesPerBelt(ingots, belt.perMin);
-  if (smelters > smelterCap) {
-    throw new Error(
-      `Mk${beltMk} cannot carry ${smelters} smelters at 100% (cap ${smelterCap}).`,
-    );
-  }
-
-  const ingotsProducedPerMin = smelters * ingotOut;
+  const plan = solveChain("cast-screw", beltMk);
+  if (plan.blockedReason) throw new Error(plan.blockedReason);
+  const ingot = plan.stages[0];
+  const screw = plan.stages[1];
+  if (!ingot || !screw) throw new Error("Cast Screws chain is missing a stage.");
   return {
     beltMk,
-    beltPerMin: belt.perMin,
-    constructors,
-    smelters,
-    screwsPerMin: constructors * screwOut,
-    ingotsConsumedPerMin,
-    ingotsProducedPerMin,
-    ingotSurplusPerMin: ingotsProducedPerMin - ingotsConsumedPerMin,
-    orePerMin: smelters * ingots.inputs[0].perMin,
+    beltPerMin: plan.beltPerMin,
+    constructors: screw.machines,
+    smelters: ingot.machines,
+    screwsPerMin: screw.outputPerMin,
+    ingotsConsumedPerMin: screw.inputPerMin,
+    ingotsProducedPerMin: ingot.outputPerMin,
+    ingotSurplusPerMin: ingot.outputPerMin - screw.inputPerMin,
+    orePerMin: ingot.inputPerMin,
   };
 }
 

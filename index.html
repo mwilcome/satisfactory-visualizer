@@ -3,18 +3,26 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Screws from iron — Satisfactory visualizer</title>
+    <title>Cast Screws — Satisfactory visualizer</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
     <div id="viewport"></div>
     <aside id="panel">
       <p class="eyebrow">Satisfactory visualizer</p>
-      <h1>Screws from iron</h1>
-      <p class="lede">
+      <h1 id="title">Cast Screws</h1>
+      <p class="lede" id="lede">
         Cast Screws alternate. Iron ore arrives on a belt, smelters make ingots, constructors cast screws.
       </p>
       <button type="button" id="demo">Demo: Screws from Iron</button>
+      <fieldset>
+        <legend>Output</legend>
+        <div class="marks" id="products"></div>
+      </fieldset>
+      <fieldset id="recipe-field" hidden>
+        <legend id="recipe-legend">Recipe</legend>
+        <div class="marks col" id="recipes"></div>
+      </fieldset>
       <fieldset>
         <legend>Belt mark</legend>
         <div class="marks">

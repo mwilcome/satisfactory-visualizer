@@ -7,6 +7,7 @@ import {
   BUFFER_PARTS,
   CONSTRUCTOR_PARTS,
   MERGER_PARTS,
+  SMART_SPLITTER_PARTS,
   SMELTER_PARTS,
   SPLITTER_PARTS,
   type PartMaterial,
@@ -89,6 +90,11 @@ export class FactoryView {
 
     this.beltRail = metal("#2c3136", 0.45, 0.55);
     this.beltTop = metal("#4a5158", 0.25, 0.62);
+    for (const beltMat of [this.beltRail, this.beltTop]) {
+      beltMat.polygonOffset = true;
+      beltMat.polygonOffsetFactor = -2;
+      beltMat.polygonOffsetUnits = -4;
+    }
     this.rampMat = metal("#9aa3ab", 0.55, 0.48);
     this.supportMat = metal("#5b534c", 0.4, 0.7);
     this.prototypes = new Map([
@@ -97,6 +103,8 @@ export class FactoryView {
       ["splitter", groupFromParts(SPLITTER_PARTS, this.materials)],
       ["merger", groupFromParts(MERGER_PARTS, this.materials)],
       ["buffer", groupFromParts(BUFFER_PARTS, this.materials)],
+      ["smartSplitter", groupFromParts(SMART_SPLITTER_PARTS, this.materials)],
+      ["bank", groupFromParts(BUFFER_PARTS, this.materials)],
     ]);
 
     const hemi = new THREE.HemisphereLight("#d5e2ea", "#6d675e", 0.72);
@@ -132,14 +140,12 @@ export class FactoryView {
     tick();
   }
 
+  clear(): void {
+    this.releasePlant();
+  }
+
   show(plant: Plant): void {
-    if (this.plant) {
-      this.plant.traverse((obj) => {
-        if (obj instanceof CSS2DObject) obj.element.remove();
-      });
-      this.scene.remove(this.plant);
-      disposeTree(this.plant);
-    }
+    this.releasePlant();
     const root = new THREE.Group();
     root.name = "plant";
     this.addFoundations(root, plant);
@@ -152,6 +158,16 @@ export class FactoryView {
     this.scene.add(root);
     this.plant = root;
     this.frame(root);
+  }
+
+  private releasePlant(): void {
+    if (!this.plant) return;
+    this.plant.traverse((obj) => {
+      if (obj instanceof CSS2DObject) obj.element.remove();
+    });
+    this.scene.remove(this.plant);
+    disposeTree(this.plant);
+    this.plant = null;
   }
 
   private resize(host: HTMLElement): void {
@@ -221,11 +237,18 @@ export class FactoryView {
 
   private addLogistics(root: THREE.Group, plant: Plant): void {
     for (const solid of plant.solids) {
-      if (solid.kind === "splitter" || solid.kind === "merger" || solid.kind === "buffer") {
+      if (
+        solid.kind === "splitter" ||
+        solid.kind === "merger" ||
+        solid.kind === "buffer" ||
+        solid.kind === "smartSplitter" ||
+        solid.kind === "bank"
+      ) {
         const proto = this.prototypes.get(solid.kind);
         if (!proto) continue;
         const mesh = proto.clone(true);
         placeBase(mesh, solid);
+        if (solid.kind === "smartSplitter") mesh.rotation.y = Math.PI;
         root.add(mesh);
       } else if (solid.kind === "lift") {
         root.add(liftMesh(solid, this.supportMat, this.beltTop));

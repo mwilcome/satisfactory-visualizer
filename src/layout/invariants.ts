@@ -1,29 +1,102 @@
-import { BUILDINGS, FOUNDATION_HEIGHT_M, FOUNDATION_SIZE_M, LIFT } from "../data/catalog";
+import { BUILDINGS, FOUNDATION_HEIGHT_M, FOUNDATION_SIZE_M, LIFT, RECIPES } from "../data/catalog";
+import { SURPLUS_EPSILON } from "../solve/chain";
 import { beltAabb, overlaps, rampAabb, solidAabb } from "./aabb";
 import type { Aabb, Plant, Solid } from "./types";
 
 const TILE = FOUNDATION_SIZE_M;
 
-/** Layout rules for the v1 screw plant. Empty list means the plant is valid. */
+/** Layout rules for a doc manifold. Empty list means the plant is valid. */
 export function layoutIssues(plant: Plant): string[] {
   const issues: string[] = [];
   const { plan } = plant;
 
   if (!plant.dedicatedNodes) issues.push("ore input must be a dedicated belt, not a siphon");
-  if (plan.constructors < 1 || plan.smelters < 1) issues.push("need at least one smelter and constructor");
-  if (plan.screwsPerMin !== plan.constructors * 50) issues.push("screw total is not constructors × 50");
-  if (Math.abs(plan.ingotsConsumedPerMin - plan.constructors * 12.5) > 1e-6) {
-    issues.push("ingot demand is not constructors × 12.5");
+  if (plan.blockedReason) issues.push(plan.blockedReason);
+  if (plan.stages.length < 2) issues.push("need at least a smelting stage and a constructor stage");
+  if (plant.floors.length !== plan.stages.length || plant.rows.length !== plan.stages.length) {
+    issues.push("floors and rows do not match the chain");
   }
-  if (plan.ingotsProducedPerMin !== plan.smelters * 30) issues.push("ingot supply is not smelters × 30");
-  if (plan.orePerMin !== plan.smelters * 30) issues.push("ore input is not smelters × 30");
-  if (plan.ingotSurplusPerMin < -1e-6) issues.push("ingot surplus went negative");
-  if (plan.screwsPerMin > plan.beltPerMin + 1e-6) issues.push("screw rate exceeds the belt");
-  if (plan.ingotsProducedPerMin > plan.beltPerMin + 1e-6) issues.push("ingot rate exceeds the belt");
-  if (plan.orePerMin > plan.beltPerMin + 1e-6) issues.push("ore rate exceeds the belt");
 
-  if (plant.floors.length !== 2) issues.push("expected two floors");
-  const [lower, upper] = plant.floors;
+  for (let index = 0; index < plan.stages.length; index += 1) {
+    const stage = plan.stages[index];
+    if (!stage) continue;
+    const recipe = RECIPES[stage.recipeId];
+    const input = recipe.inputs[0];
+    const output = recipe.outputs[0];
+    if (!input || !output) {
+      issues.push(`${stage.recipeId} is missing a stack`);
+      continue;
+    }
+    if (stage.machines < 1) issues.push(`${stage.recipeId} has no machines`);
+    if (Math.abs(stage.outputPerMin - stage.machines * output.perMin) > 1e-6) {
+      issues.push(`${stage.recipeId} output is not machines × ${output.perMin}`);
+    }
+    if (Math.abs(stage.inputPerMin - stage.machines * input.perMin) > 1e-6) {
+      issues.push(`${stage.recipeId} input is not machines × ${input.perMin}`);
+    }
+    if (stage.outputPerMin > plan.beltPerMin + 1e-6) issues.push(`${stage.recipeId} output exceeds the belt`);
+    if (stage.inputPerMin > plan.beltPerMin + 1e-6) issues.push(`${stage.recipeId} input exceeds the belt`);
+    const next = plan.stages[index + 1];
+    if (next && stage.outputPerMin + 1e-6 < next.inputPerMin && !next.underfedNote) {
+      issues.push(`${stage.recipeId} does not feed ${next.recipeId}`);
+    }
+    if (stage.underfedNote) {
+      const prev = plan.stages[index - 1];
+      if (!prev || prev.outputPerMin + SURPLUS_EPSILON >= stage.inputPerMin) {
+        issues.push(`${stage.recipeId} is marked underfed but supply covers it`);
+      }
+      if (!plant.labels.some((label) => label.id === `${stage.recipeId}-underfed`)) {
+        issues.push(`${stage.recipeId} underfed note is missing from the plant`);
+      }
+    }
+    const overflow = plant.belts.filter((belt) => belt.role === "overflow-stub" && belt.rowId === stage.recipeId);
+    const surplus = next ? stage.outputPerMin - next.inputPerMin : 0;
+    const smart = plant.solids.find((solid) => solid.kind === "smartSplitter" && solid.rowId === stage.recipeId);
+    const sink = plant.solids.find((solid) => solid.kind === "sink" && solid.rowId === stage.recipeId);
+    const bank = plant.solids.find((solid) => solid.kind === "bank" && solid.rowId === stage.recipeId);
+    if (surplus > SURPLUS_EPSILON) {
+      if (overflow.length < 1) issues.push(`${stage.recipeId} surplus has no overflow belts`);
+      for (const belt of overflow) {
+        if (output && belt.itemId !== output.itemId) issues.push(`${belt.id} is not the surplus item`);
+        if (Math.abs(belt.designPerMin - surplus) > 1e-6) issues.push(`${belt.id} is not the surplus rate`);
+      }
+      if (!smart || !bank) issues.push(`${stage.recipeId} overflow path is missing a building`);
+      if (plant.solids.some((solid) => solid.kind === "sink" && solid.rowId === stage.recipeId)) {
+        issues.push(`${stage.recipeId} draws an Awesome Sink`);
+      }
+      const row = plant.rows.find((item) => item.id === stage.recipeId);
+      if (smart && smart.base.x >= plant.feedEndX) issues.push(`${stage.recipeId} smart splitter is not at the feed end`);
+      if (smart && row && smart.base.x > row.feedEndX) issues.push(`${stage.recipeId} smart splitter is on the open end`);
+      const overflowBelt = overflow.find((belt) => belt.id.endsWith("overflow-to-sink"));
+      if (!overflowBelt) issues.push(`${stage.recipeId} has no overflow out belt`);
+      if (overflowBelt && smart) {
+        if (Math.abs(overflowBelt.from.x - overflowBelt.to.x) > 1e-6 || Math.abs(overflowBelt.from.x - smart.base.x) > 1e-6) {
+          issues.push(`${stage.recipeId} overflow belt is not a straight side output`);
+        }
+        const endZ = Math.max(overflowBelt.from.z, overflowBelt.to.z);
+        if (endZ < 40 - 1e-6) issues.push(`${stage.recipeId} overflow belt does not leave the factory`);
+      }
+      if (
+        !plant.labels.some(
+          (label) => label.id === `${stage.recipeId}-overflow-label` && label.text === "Overflow out (to sink)",
+        )
+      ) {
+        issues.push(`${stage.recipeId} overflow label is missing`);
+      }
+      const bankBox = BUILDINGS.storageIndustrial;
+      if (bank && (bank.size.x !== bankBox.length || bank.size.y !== bankBox.height || bank.size.z !== bankBox.width)) {
+        issues.push(`${stage.recipeId} bank is not the industrial storage footprint`);
+      }
+      if (smart && (smart.size.x !== 4 || smart.size.y !== 1 || smart.size.z !== 4)) {
+        issues.push(`${stage.recipeId} smart splitter is not 4×4×1`);
+      }
+    } else if (overflow.length > 0 || smart || sink || bank) {
+      issues.push(`${stage.recipeId} has an overflow path without surplus`);
+    }
+  }
+
+  const lower = plant.floors[0];
+  const upper = plant.floors[plant.floors.length - 1];
   if (!lower || !upper) return issues;
   for (const floor of plant.floors) {
     if (floor.foundationHeightM !== 1) issues.push(`${floor.id} foundation is not 1 m`);
@@ -31,7 +104,11 @@ export function layoutIssues(plant: Plant): string[] {
       issues.push(`${floor.id} is not a 3-wall production story`);
     }
   }
-  if (upper.z - lower.z !== 12) issues.push("floor pitch is not 12 m");
+  for (let index = 1; index < plant.floors.length; index += 1) {
+    const below = plant.floors[index - 1];
+    const above = plant.floors[index];
+    if (below && above && above.z - below.z !== 12) issues.push("floor pitch is not 12 m");
+  }
 
   const marks = new Set(plant.belts.map((belt) => belt.mk));
   if (marks.size !== 1 || !marks.has(plan.beltMk)) issues.push("a line mixes belt marks");
@@ -59,7 +136,7 @@ export function layoutIssues(plant: Plant): string[] {
     if ((solid.kind === "splitter" || solid.kind === "merger") && (solid.size.x !== 4 || solid.size.y !== 1 || solid.size.z !== 4)) {
       issues.push(`${solid.id} is not a 4×4×1 ${solid.kind}`);
     }
-    if (solid.kind === "buffer") {
+    if (solid.kind === "buffer" || solid.kind === "bank") {
       const box = BUILDINGS.storageIndustrial;
       if (solid.size.x !== box.length || solid.size.y !== box.height || solid.size.z !== box.width) {
         issues.push("buffer does not match the industrial storage footprint");
@@ -78,7 +155,7 @@ export function layoutIssues(plant: Plant): string[] {
     if (splitters.length !== machines.length || mergers.length !== machines.length) {
       issues.push(`${row.id} is not one splitter and one merger per machine`);
     }
-    const expected = row.id === "smelt" ? plan.smelters : plan.constructors;
+    const expected = plan.stages.find((stage) => stage.recipeId === row.id)?.machines;
     if (machines.length !== expected) issues.push(`${row.id} does not match the belt-limited plan`);
 
     for (const machine of machines) {
@@ -161,7 +238,8 @@ export function layoutIssues(plant: Plant): string[] {
     if (Math.max(ramp.from.x, ramp.to.x) > plant.feedEndX + 1e-6) issues.push(`${ramp.id} leaves the feed end`);
     rise += climbed;
   }
-  if (Math.abs(rise - 12) > 1e-6) issues.push("ramp does not climb the full story");
+  const stories = Math.max(0, plant.floors.length - 1) * 12;
+  if (Math.abs(rise - stories) > 1e-6) issues.push("ramp does not climb the full story");
   for (const ramp of plant.ramps) {
     for (const belt of plant.belts) {
       if (overlaps(rampAabb(ramp), beltAabb(belt))) issues.push(`${ramp.id} blocks ${belt.id}`);
@@ -169,7 +247,7 @@ export function layoutIssues(plant: Plant): string[] {
   }
 
   for (const solid of plant.solids) {
-    if (solid.kind !== "lift" && solid.kind !== "buffer") continue;
+    if (solid.kind !== "lift" && solid.kind !== "buffer" && solid.kind !== "bank" && solid.kind !== "smartSplitter" && solid.kind !== "sink") continue;
     const box = solidAabb(solid);
     if (box.max.x > plant.feedEndX + 1e-6) issues.push(`${solid.id} is not kept at the feed end`);
     if (box.min.x > rowOpen(plant)) issues.push(`${solid.id} blocks the open end`);
@@ -197,7 +275,7 @@ export function layoutIssues(plant: Plant): string[] {
     }
   }
 
-  const blockers: Solid["kind"][] = ["machine", "splitter", "merger", "buffer", "lift"];
+  const blockers: Solid["kind"][] = ["machine", "splitter", "merger", "buffer", "lift", "smartSplitter", "sink", "bank"];
   for (const support of plant.solids.filter((solid) => solid.kind === "support")) {
     const box = solidAabb(support);
     for (const solid of plant.solids) {
@@ -214,6 +292,18 @@ export function layoutIssues(plant: Plant): string[] {
     }
   }
 
+  for (const solid of plant.solids) {
+    if (solid.kind !== "smartSplitter" && solid.kind !== "sink" && solid.kind !== "bank") continue;
+    const box = solidAabb(solid);
+    for (const belt of plant.belts) {
+      if (overlaps(box, beltAabb(belt))) issues.push(`${belt.id} intersects ${solid.id}`);
+    }
+    for (const other of plant.solids) {
+      if (other.id === solid.id || other.kind === "foundation" || other.kind === "support") continue;
+      if (overlaps(box, solidAabb(other))) issues.push(`${solid.id} overlaps ${other.id}`);
+    }
+  }
+
   const machines = plant.solids.filter((solid) => solid.kind === "machine");
   for (let i = 0; i < machines.length; i += 1) {
     for (let j = i + 1; j < machines.length; j += 1) {
@@ -223,7 +313,7 @@ export function layoutIssues(plant: Plant): string[] {
     }
   }
 
-  if (plant.solids.some((solid) => solid.buildingId === "foundry")) issues.push("foundry was placed in the screw demo");
+  if (plant.solids.some((solid) => solid.buildingId === "foundry")) issues.push("foundry was placed");
   if (plant.belts.some((belt) => belt.mk !== plan.beltMk)) issues.push("belt mark drifted");
 
   return issues;

@@ -128,6 +128,19 @@ export const SPLITTER_PARTS: SolidPart[] = [
   { size: [0.42, 0.08, 0.85], center: [0.55, 0.96, 0], material: "splitter" },
 ];
 
+/**
+ * Smart splitter, same 4 × 4 × 1 envelope as the conveyor splitter.
+ * Wiki: orange top, one input, three outputs. The mesh is rotated in the
+ * view so the arrow points at the overflow output.
+ */
+export const SMART_SPLITTER_PARTS: SolidPart[] = [
+  { size: [4, 0.72, 4], center: [0, 0.36, 0], material: "splitter" },
+  { size: [3.15, 0.16, 3.15], center: [0, 0.8, 0], material: "orange" },
+  { size: [2.4, 0.08, 2.4], center: [0, 0.92, 0], material: "dark" },
+  { size: [1.5, 0.08, 0.42], center: [0.1, 0.96, 0], material: "orange" },
+  { size: [0.42, 0.08, 0.85], center: [0.55, 0.96, 0], material: "orange" },
+];
+
 /** Same envelope as a splitter. Arrow points toward -x, back to the feed end. */
 export const MERGER_PARTS: SolidPart[] = [
   { size: [4, 0.72, 4], center: [0, 0.36, 0], material: "splitter" },
@@ -136,13 +149,75 @@ export const MERGER_PARTS: SolidPart[] = [
   { size: [0.42, 0.08, 0.85], center: [-0.55, 0.96, 0], material: "splitter" },
 ];
 
-/** Industrial storage, length along x. Footprint 11 × 5 × 8. */
+/**
+ * Storage Container. Footprint 5 × 11 × 4, length along z, port on each end.
+ * https://satisfactory.wiki.gg/wiki/Storage_Container
+ */
+export const STORAGE_CONTAINER_PARTS: SolidPart[] = [
+  { size: [5, 0.35, 11], center: [0, 0.175, 0], material: "dark" },
+  { size: [4.6, 2.7, 10.6], center: [0, 1.7, 0], material: "splitter" },
+  { size: [5, 0.45, 11], center: [0, 3.775, 0], material: "dark" },
+  { size: [4.3, 0.16, 10.2], center: [0, 1.15, 0], material: "dark" },
+  { size: [4.3, 0.16, 10.2], center: [0, 2.15, 0], material: "dark" },
+  { size: [4.3, 0.16, 10.2], center: [0, 3.05, 0], material: "dark" },
+  { size: [0.22, 2.4, 0.22], center: [-2.15, 1.7, -5.15], material: "steel" },
+  { size: [0.22, 2.4, 0.22], center: [2.15, 1.7, -5.15], material: "steel" },
+  { size: [0.22, 2.4, 0.22], center: [-2.15, 1.7, 5.15], material: "steel" },
+  { size: [0.22, 2.4, 0.22], center: [2.15, 1.7, 5.15], material: "steel" },
+  { size: [1.6, 1.15, 0.12], center: [0, 1.15, -5.44], material: "port" },
+  { size: [1.6, 1.15, 0.12], center: [0, 1.15, 5.44], material: "port" },
+];
+
+/**
+ * AWESOME Sink. Footprint 16 × 13 × 24. Input on the -z face (the 16 m side).
+ * https://satisfactory.wiki.gg/wiki/AWESOME_Sink
+ */
+export const AWESOME_SINK_PARTS: SolidPart[] = [
+  { size: [16, 0.8, 13], center: [0, 0.4, 0], material: "dark" },
+  { size: [14.5, 6.5, 10.5], center: [0, 4.05, -0.4], material: "steel" },
+  { size: [10, 3.4, 1.6], center: [0, 2.3, -5.7], material: "body" },
+  { size: [2.4, 1.7, 0.2], center: [0, 1.45, -6.4], material: "port" },
+  { size: [12, 0.35, 0.2], center: [0, 3.7, -6.4], material: "orange" },
+  { size: [1.1, 14, 12.2], center: [-7.45, 7.4, 0.2], material: "body" },
+  { size: [1.1, 14, 12.2], center: [7.45, 7.4, 0.2], material: "body" },
+  { size: [8.5, 24, 3.2], center: [0, 12, 4.9], material: "steel" },
+  { size: [6.4, 8, 2.4], center: [0, 16, 4.6], material: "dark" },
+  { size: [7.2, 0.45, 0.25], center: [0, 18.5, 6.2], material: "orange" },
+  { size: [7.2, 0.45, 0.25], center: [0, 10.5, 6.2], material: "orange" },
+  { size: [5.5, 1.4, 2.6], center: [0, 22.6, 4.8], material: "body" },
+  { size: [3.2, 0.7, 1.6], center: [0, 23.65, 4.9], material: "orange" },
+];
+
+/**
+ * Industrial storage, length along x. Footprint 11 × 5 × 8.
+ * The end faces are a frame around an open port. The yellow body is inset
+ * so it does not share a plane with the belt end (that plane was the flickering square).
+ * Port center is 1.15 m above the base. The opening clears a 2 m belt.
+ */
+export const INDUSTRIAL_PORT_Y = 1.15;
+/**
+ * Belt ends on the outer face. The port is an opening, so that end is not
+ * pressed against a coplanar wall. A positive value would enter the footprint box.
+ */
+export const INDUSTRIAL_PORT_ENTRY = 0;
+
+function storageEndFrame(sign: -1 | 1): SolidPart[] {
+  const x = sign * 5.44;
+  const slab: Pick<SolidPart, "size"> = { size: [0.12, 0, 0] };
+  return [
+    { size: [slab.size[0], 0.35, 5], center: [x, 0.175, 0], material: "splitter" },
+    { size: [slab.size[0], 6.05, 5], center: [x, 4.975, 0], material: "splitter" },
+    { size: [slab.size[0], 1.6, 1.3], center: [x, INDUSTRIAL_PORT_Y, -1.85], material: "splitter" },
+    { size: [slab.size[0], 1.6, 1.3], center: [x, INDUSTRIAL_PORT_Y, 1.85], material: "splitter" },
+  ];
+}
+
 export const BUFFER_PARTS: SolidPart[] = [
-  { size: [11, 7.2, 5], center: [0, 3.6, 0], material: "splitter" },
-  { size: [11, 0.45, 5], center: [0, 7.775, 0], material: "dark" },
+  { size: [10.6, 7.15, 5], center: [0, 3.575, 0], material: "splitter" },
+  { size: [10.6, 0.5, 5], center: [0, 7.75, 0], material: "dark" },
   { size: [10.2, 0.28, 4.55], center: [0, 2.15, 0], material: "dark" },
   { size: [10.2, 0.28, 4.55], center: [0, 4.35, 0], material: "dark" },
   { size: [10.2, 0.28, 4.55], center: [0, 6.2, 0], material: "dark" },
-  { size: [0.1, 1.15, 1.35], center: [-5.45, 1.15, 0], material: "port" },
-  { size: [0.1, 1.15, 1.35], center: [5.45, 1.15, 0], material: "port" },
+  ...storageEndFrame(-1),
+  ...storageEndFrame(1),
 ];

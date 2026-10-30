@@ -98,6 +98,10 @@ h1 {
   outline-offset: 2px;
 }
 
+.marks.col {
+  grid-template-columns: 1fr;
+}
+
 fieldset {
   margin: 0 0 16px;
   padding: 0;
@@ -140,6 +144,17 @@ legend {
   margin-bottom: 8px;
   color: var(--ink);
   font: 650 22px/1.2 ui-monospace, "Cascadia Code", monospace;
+}
+
+#summary .counts {
+  margin: 0 0 2px;
+  color: var(--ink);
+  font: 650 17px/1.3 ui-monospace, "Cascadia Code", monospace;
+}
+
+#summary .warn {
+  color: var(--amber);
+  font-weight: 650;
 }
 
 .hint {
