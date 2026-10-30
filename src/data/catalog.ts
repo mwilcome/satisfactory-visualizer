@@ -1,3 +1,5 @@
+import { ITEM_LIST, RECIPE_LIST } from "./generated-catalog";
+
 /**
  * Satisfactory building and recipe data.
  * Recipe rates below were checked against satisfactory.wiki.gg on 2026-10-30
@@ -7,6 +9,8 @@
  * - Smelter (Desc_SmelterMk1_C): 5 × 10 × 8.5 m
  * - Constructor (Desc_ConstructorMk1_C): 8 × 10 × 8.5 m
  * - Foundry (Desc_FoundryMk1_C): 10 × 10 × 9 m
+ * - Assembler (Desc_AssemblerMk1_C): 9 × 16 × 11 m
+ *   https://satisfactory.wiki.gg/wiki/Assembler
  * - Conveyor Splitter / Merger: 4 × 4 m, height 2n+1 m (one unit is 1 m; stack step 2 m)
  * - Smart Splitter (Desc_ConveyorAttachmentSplitterSmart_C): 4 × 4 m, height 2n+1 m
  *   https://satisfactory.wiki.gg/wiki/Smart_Splitter
@@ -94,6 +98,16 @@ export const BUILDINGS = {
     inputs: 2,
     outputs: 1,
   },
+  assembler: {
+    id: "assembler",
+    name: "Assembler",
+    className: "Desc_AssemblerMk1_C",
+    width: 9,
+    length: 16,
+    height: 11,
+    inputs: 2,
+    outputs: 1,
+  },
   splitter: {
     id: "splitter",
     name: "Conveyor Splitter",
@@ -164,6 +178,41 @@ export const LIFT = { width: 2, length: 2 } as const;
 export const WALKWAY = { width: 4, length: 4, height: 2, rise: 2 } as const;
 
 /**
+ * World coordinates are meters. Foundations stay on an 8 m grid; belt nudges do not.
+ * In game, nudge is 1 m and Ctrl-nudge is 0.5 m.
+ */
+export const INPUT_STAIR_NUDGE_M = 1;
+
+/**
+ * Vertical step between input-lane belt centers.
+ * A belt is 1 m tall, so 2 m (the splitter stack step) leaves a 1 m gap.
+ * The lanes are also nudged apart in plan. This rise is not a lift between splitters.
+ * TODO: swap in measured connector heights if a port table becomes available.
+ */
+export const INPUT_LANE_RISE_M = 2;
+
+/** Meters the lane sits farther from the machine than the innermost input. Lane 0 is farthest. */
+export function inputLaneOutboardM(lane: number, inputCount: number): number {
+  return (inputCount - 1 - lane) * INPUT_STAIR_NUDGE_M;
+}
+
+/**
+ * Manufacturer is not built in this phase. The stair helper above is the stub:
+ * four inputs would sit 0, 1, 2, and 3 m outboard, lowest farthest.
+ * Wiki 2026-10-30: 18 × 20 × 12 m, 4 conveyor inputs, 1 output.
+ * TODO: mesh, port heights, and a build once oil is not the next bound.
+ */
+export const MANUFACTURER_LATER = {
+  id: "manufacturer",
+  className: "Desc_ManufacturerMk1_C",
+  width: 18,
+  length: 20,
+  height: 12,
+  inputs: 4,
+  outputs: 1,
+} as const;
+
+/**
  * Selectable belt marks. A manifold is one mark end to end — never a mix.
  * Mk1 is the conceptual start; Mk2–Mk4 lengthen the same layout.
  * Later marks can be appended here. Nothing in the layout assumes one mark.
@@ -204,129 +253,27 @@ export interface Recipe {
   outputs: ItemStack[];
 }
 
-export const RECIPES = {
-  "iron-ingot": {
-    id: "iron-ingot",
-    name: "Iron Ingot",
-    alternate: false,
-    className: "Recipe_IngotIron_C",
-    buildingId: "smelter",
-    cycleSeconds: 2,
-    inputs: [{ itemId: "iron-ore", perCycle: 1, perMin: 30 }],
-    outputs: [{ itemId: "iron-ingot", perCycle: 1, perMin: 30 }],
-  },
-  "cast-screw": {
-    id: "cast-screw",
-    name: "Cast Screws",
-    alternate: true,
-    className: "Recipe_Alternate_Screw_C",
-    buildingId: "constructor",
-    cycleSeconds: 24,
-    inputs: [{ itemId: "iron-ingot", perCycle: 5, perMin: 12.5 }],
-    outputs: [{ itemId: "screw", perCycle: 20, perMin: 50 }],
-  },
-  // https://satisfactory.wiki.gg/wiki/Copper_Ingot — Smelter, 2 s.
-  // 1 Copper Ore (30/min) → 1 Copper Ingot (30/min).
-  "copper-ingot": {
-    id: "copper-ingot",
-    name: "Copper Ingot",
-    alternate: false,
-    className: "Recipe_IngotCopper_C",
-    buildingId: "smelter",
-    cycleSeconds: 2,
-    inputs: [{ itemId: "copper-ore", perCycle: 1, perMin: 30 }],
-    outputs: [{ itemId: "copper-ingot", perCycle: 1, perMin: 30 }],
-  },
-  // https://satisfactory.wiki.gg/wiki/Iron_Plate — Constructor, 6 s.
-  // 3 Iron Ingot (30/min) → 2 Iron Plate (20/min). Default recipe.
-  "iron-plate": {
-    id: "iron-plate",
-    name: "Iron Plate",
-    alternate: false,
-    className: "Recipe_IronPlate_C",
-    buildingId: "constructor",
-    cycleSeconds: 6,
-    inputs: [{ itemId: "iron-ingot", perCycle: 3, perMin: 30 }],
-    outputs: [{ itemId: "iron-plate", perCycle: 2, perMin: 20 }],
-  },
-  // https://satisfactory.wiki.gg/wiki/Iron_Rod — Constructor, 4 s.
-  // 1 Iron Ingot (15/min) → 1 Iron Rod (15/min). Default recipe.
-  "iron-rod": {
-    id: "iron-rod",
-    name: "Iron Rod",
-    alternate: false,
-    className: "Recipe_IronRod_C",
-    buildingId: "constructor",
-    cycleSeconds: 4,
-    inputs: [{ itemId: "iron-ingot", perCycle: 1, perMin: 15 }],
-    outputs: [{ itemId: "iron-rod", perCycle: 1, perMin: 15 }],
-  },
-  // https://satisfactory.wiki.gg/wiki/Screw — Constructor, 6 s.
-  // 1 Iron Rod (10/min) → 4 Screws (40/min). Default recipe (1.1 name: Screws).
-  screw: {
-    id: "screw",
-    name: "Screws",
-    alternate: false,
-    className: "Recipe_Screw_C",
-    buildingId: "constructor",
-    cycleSeconds: 6,
-    inputs: [{ itemId: "iron-rod", perCycle: 1, perMin: 10 }],
-    outputs: [{ itemId: "screw", perCycle: 4, perMin: 40 }],
-  },
-  // https://satisfactory.wiki.gg/wiki/Wire — Constructor, 4 s.
-  // 1 Copper Ingot (15/min) → 2 Wire (30/min). Default recipe.
-  wire: {
-    id: "wire",
-    name: "Wire",
-    alternate: false,
-    className: "Recipe_Wire_C",
-    buildingId: "constructor",
-    cycleSeconds: 4,
-    inputs: [{ itemId: "copper-ingot", perCycle: 1, perMin: 15 }],
-    outputs: [{ itemId: "wire", perCycle: 2, perMin: 30 }],
-  },
-  // https://satisfactory.wiki.gg/wiki/Wire — Iron Wire alternate. Constructor, 24 s.
-  // 5 Iron Ingot (12.5/min) → 9 Wire (22.5/min).
-  // Class Recipe_Alternate_Wire_1_C matches those rates (not Wire_2).
-  "iron-wire": {
-    id: "iron-wire",
-    name: "Iron Wire",
-    alternate: true,
-    className: "Recipe_Alternate_Wire_1_C",
-    buildingId: "constructor",
-    cycleSeconds: 24,
-    inputs: [{ itemId: "iron-ingot", perCycle: 5, perMin: 12.5 }],
-    outputs: [{ itemId: "wire", perCycle: 9, perMin: 22.5 }],
-  },
-  // https://satisfactory.wiki.gg/wiki/Cable — Constructor, 2 s.
-  // 2 Wire (60/min) → 1 Cable (30/min). Default recipe.
-  cable: {
-    id: "cable",
-    name: "Cable",
-    alternate: false,
-    className: "Recipe_Cable_C",
-    buildingId: "constructor",
-    cycleSeconds: 2,
-    inputs: [{ itemId: "wire", perCycle: 2, perMin: 60 }],
-    outputs: [{ itemId: "cable", perCycle: 1, perMin: 30 }],
-  },
-} as const satisfies Record<string, Recipe>;
+export const ITEMS: Record<string, { id: string; name: string; raw: boolean; fluid: boolean }> =
+  Object.fromEntries(ITEM_LIST.map((item) => [item.id, item]));
 
-export type RecipeId = keyof typeof RECIPES;
+export type ItemId = string;
 
-export const ITEMS = {
-  "iron-ore": { id: "iron-ore", name: "Iron Ore" },
-  "iron-ingot": { id: "iron-ingot", name: "Iron Ingot" },
-  "iron-plate": { id: "iron-plate", name: "Iron Plate" },
-  "iron-rod": { id: "iron-rod", name: "Iron Rod" },
-  screw: { id: "screw", name: "Screws" },
-  "copper-ore": { id: "copper-ore", name: "Copper Ore" },
-  "copper-ingot": { id: "copper-ingot", name: "Copper Ingot" },
-  wire: { id: "wire", name: "Wire" },
-  cable: { id: "cable", name: "Cable" },
-} as const;
+export const RECIPES: Record<string, Recipe> = Object.fromEntries(
+  RECIPE_LIST.map((recipe) => [recipe.id, recipe]),
+);
 
-export type ItemId = keyof typeof ITEMS;
+export type RecipeId = string;
+
+/** Parts you can aim the factory at. Raw ores and fluids stay inputs, not targets. */
+export function targetItems(): { id: string; name: string; raw: boolean; fluid: boolean }[] {
+  const made = new Set<string>();
+  for (const recipe of Object.values(RECIPES)) {
+    for (const output of recipe.outputs) made.add(output.itemId);
+  }
+  return ITEM_LIST.filter((item) => made.has(item.id) && !item.fluid).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+}
 
 /** How many whole machines of this recipe one belt mark can feed and empty. */
 export function machinesPerBelt(recipe: Recipe, perMin: number): number {

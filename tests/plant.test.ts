@@ -1,11 +1,27 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { BUILDINGS, FOUNDATION_HEIGHTS_LATER_M, storyAirM, storyClearanceM } from "../src/data/catalog";
+import {
+  BUILDINGS,
+  FOUNDATION_HEIGHTS_LATER_M,
+  FOUNDATION_SIZE_M,
+  INPUT_STAIR_NUDGE_M,
+  ITEMS,
+  MANUFACTURER_LATER,
+  RECIPES,
+  inputLaneOutboardM,
+  targetItems,
+  storyAirM,
+  storyClearanceM,
+} from "../src/data/catalog";
 import { CHAINS, standardChain, type ChainId } from "../src/data/chains";
+import { selectableItems, solveTarget } from "../src/solve/target";
 import { chainForProduct } from "../src/ui/selection";
 import {
+  ASSEMBLER_PARTS,
   AWESOME_SINK_PARTS,
   BUFFER_PARTS,
   CONSTRUCTOR_PARTS,
+  FOUNDRY_PARTS,
   MERGER_PARTS,
   SMART_SPLITTER_PARTS,
   SMELTER_PARTS,
@@ -29,7 +45,20 @@ describe("wiki footprints", () => {
       height: 8.5,
       className: "Desc_ConstructorMk1_C",
     });
-    expect(BUILDINGS.foundry).toMatchObject({ width: 10, length: 10, height: 9 });
+    expect(BUILDINGS.foundry).toMatchObject({ width: 10, length: 10, height: 9, inputs: 2, outputs: 1 });
+    expect(BUILDINGS.assembler).toMatchObject({
+      width: 9,
+      length: 16,
+      height: 11,
+      inputs: 2,
+      outputs: 1,
+      className: "Desc_AssemblerMk1_C",
+    });
+    expect(INPUT_STAIR_NUDGE_M).toBe(1);
+    expect(FOUNDATION_SIZE_M).toBe(8);
+    expect(inputLaneOutboardM(0, 2)).toBe(1);
+    expect(inputLaneOutboardM(1, 2)).toBe(0);
+    expect([0, 1, 2, 3].map((lane) => inputLaneOutboardM(lane, MANUFACTURER_LATER.inputs))).toEqual([3, 2, 1, 0]);
     expect(BUILDINGS.splitter).toMatchObject({ width: 4, length: 4, height: 1 });
     expect(BUILDINGS.storageIndustrial).toMatchObject({ width: 5, length: 11, height: 8 });
   });
@@ -37,6 +66,8 @@ describe("wiki footprints", () => {
   it("keeps mesh parts inside the real footprint and touching every face", () => {
     expect(footprintErrors(SMELTER_PARTS, { x: 5, y: 8.5, z: 10 })).toEqual([]);
     expect(footprintErrors(CONSTRUCTOR_PARTS, { x: 8, y: 8.5, z: 10 })).toEqual([]);
+    expect(footprintErrors(FOUNDRY_PARTS, { x: 10, y: 9, z: 10 })).toEqual([]);
+    expect(footprintErrors(ASSEMBLER_PARTS, { x: 9, y: 11, z: 16 })).toEqual([]);
     expect(footprintErrors(SPLITTER_PARTS, { x: 4, y: 1, z: 4 })).toEqual([]);
     expect(footprintErrors(MERGER_PARTS, { x: 4, y: 1, z: 4 })).toEqual([]);
     expect(footprintErrors(BUFFER_PARTS, { x: 11, y: 8, z: 5 })).toEqual([]);
@@ -86,7 +117,8 @@ describe("manifold layout", () => {
       expect(plant.belts.every((belt) => belt.mk === mk)).toBe(true);
       expect(plant.solids.every((solid) => solid.kind !== "foundation" || solid.size.y === 1)).toBe(true);
       expect(plant.floors).toHaveLength(2);
-      expect(plant.ramps).toHaveLength(6);
+      expect(plant.ramps.filter((ramp) => ramp.kind === "rise")).toHaveLength(6);
+      expect(plant.ramps.filter((ramp) => ramp.kind === "landing")).toHaveLength(2);
     });
   }
 
@@ -135,7 +167,8 @@ describe("other chains", () => {
         expect(layoutIssues(plant)).toEqual([]);
         expect(plant.floors).toHaveLength(CHAINS[chainId].stages.length);
         expect(plant.belts.every((belt) => belt.mk === mk)).toBe(true);
-        expect(plant.ramps.length).toBe((plant.floors.length - 1) * 6);
+        expect(plant.ramps.filter((ramp) => ramp.kind === "rise")).toHaveLength((plant.floors.length - 1) * 6);
+        expect(plant.ramps.filter((ramp) => ramp.kind === "landing")).toHaveLength((plant.floors.length - 1) * 2);
       });
     }
   }
@@ -175,23 +208,124 @@ describe("saved output", () => {
     expect(standardChain("wire")).toBe("wire-copper");
   });
 
-  it("opens on Cast Screws at Mk3 when nothing is stored", () => {
-    expect(parseSelection(null)).toMatchObject({ chainId: "cast-screw", mk: 3 });
+  it("opens on Screws with Cast Screws at Mk3 when nothing is stored", () => {
+    expect(parseSelection(null)).toMatchObject({ itemId: "screw", mk: 3, recipes: { screw: "cast-screw" } });
   });
 
-  it("restores a known output and mark, and drops junk", () => {
-    expect(parseSelection(JSON.stringify({ chainId: "iron-rod", mk: 4 }))).toMatchObject({
-      chainId: "iron-rod",
+  it("restores an item and maps an old chain save", () => {
+    expect(parseSelection(JSON.stringify({ itemId: "iron-rod", mk: 4, recipes: {} }))).toMatchObject({
+      itemId: "iron-rod",
       mk: 4,
     });
-    expect(parseSelection("{")).toMatchObject({ chainId: "cast-screw", mk: 3 });
+    expect(parseSelection(JSON.stringify({ chainId: "iron-rod", mk: 4 }))).toMatchObject({
+      itemId: "iron-rod",
+      mk: 4,
+    });
+    expect(parseSelection("{")).toMatchObject({ itemId: "screw", mk: 3 });
     expect(parseSelection(JSON.stringify({ chainId: "nope", mk: 3 }))).toMatchObject({
-      chainId: "cast-screw",
+      itemId: "screw",
       mk: 3,
     });
-    expect(parseSelection(JSON.stringify({ chainId: "wire-iron", mk: 9 }))).toMatchObject({
-      chainId: "cast-screw",
-      mk: 3,
+    expect(parseSelection(JSON.stringify({ chainId: "wire-iron", mk: 2 }))).toMatchObject({
+      itemId: "wire",
+      mk: 2,
+      recipes: { wire: "iron-wire" },
     });
+  });
+});
+
+describe("item catalog", () => {
+  it("lists every Smelter, Constructor, Foundry, and Assembler part", () => {
+    const items = targetItems();
+    expect(items.length).toBeGreaterThan(60);
+    expect(Object.keys(ITEMS).length).toBeGreaterThan(items.length);
+    const buildings = new Set(Object.values(RECIPES).map((recipe) => recipe.buildingId));
+    expect([...buildings].sort()).toEqual(["assembler", "constructor", "foundry", "smelter"]);
+    expect(Object.values(RECIPES).filter((recipe) => recipe.buildingId === "assembler").length).toBeGreaterThan(30);
+    expect(readFileSync("index.html", "utf8").toLowerCase()).not.toContain("demo");
+    expect(readFileSync("src/main.ts", "utf8")).not.toContain("Demo");
+  });
+
+  it("offers Steel Ingot and Reinforced Iron Plate as items, and lays them out", () => {
+    const names = selectableItems().map((item) => item.name);
+    expect(names).toContain("Screws");
+    expect(names).toContain("Iron Plate");
+    expect(names).toContain("Cable");
+    expect(names).toContain("Steel Ingot");
+    expect(names).toContain("Reinforced Iron Plate");
+    expect(names).not.toContain("Foundry");
+    expect(names).not.toContain("Assembler");
+    expect(names.length).toBeGreaterThan(40);
+    const steel = solveTarget("steel-ingot", 3);
+    const plate = solveTarget("reinforced-iron-plate", 3);
+    expect(steel.blockedReason).toBeNull();
+    expect(plate.blockedReason).toBeNull();
+    expect(buildChainPlant(steel).solids.some((solid) => solid.buildingId === "foundry")).toBe(true);
+    expect(buildChainPlant(plate).solids.some((solid) => solid.buildingId === "assembler")).toBe(true);
+    expect(layoutIssues(buildChainPlant(steel))).toEqual([]);
+    expect(layoutIssues(buildChainPlant(plate))).toEqual([]);
+  });
+});
+
+describe("assembler and foundry", () => {
+  it("joins plates and cast screws on one assembler row", () => {
+    const plan = solveChain("assembler-plates-screws", 3);
+    expect(plan.blockedReason).toBeNull();
+    expect(plan.stages.map((stage) => stage.machines)).toEqual([6, 6, 3, 5, 4]);
+    expect(plan.stages.map((stage) => stage.surplusPerMin)).toEqual([0, 0, 27.5, 10, 0]);
+    const plant = buildChainPlant(plan);
+    expect(layoutIssues(plant)).toEqual([]);
+    const assemblers = plant.solids.filter((solid) => solid.buildingId === "assembler");
+    expect(assemblers).toHaveLength(4);
+    const splitters = plant.solids.filter((solid) => solid.kind === "splitter" && solid.rowId === "reinforced-iron-plate");
+    const mergers = plant.solids.filter((solid) => solid.kind === "merger" && solid.rowId === "reinforced-iron-plate");
+    expect(splitters).toHaveLength(8);
+    expect(mergers).toHaveLength(4);
+    const low = splitters.find((solid) => solid.lane === 0 && solid.rowIndex === 0);
+    const high = splitters.find((solid) => solid.lane === 1 && solid.rowIndex === 0);
+    if (!low || !high) throw new Error("assembler lanes missing");
+    expect(low.base.z).toBeCloseTo(high.base.z - 1);
+    expect(low.base.y).toBeCloseTo(high.base.y - 2);
+    expect(low.base.z).toBeLessThan(high.base.z);
+    expect(plant.belts.every((belt) => belt.mk === 3)).toBe(true);
+    expect(assemblers.every((solid) => solid.clock === 100)).toBe(true);
+  });
+
+  it("keeps Mk1 plates-and-screws on screen and says the assembler is short of screws", () => {
+    const plan = solveChain("assembler-plates-screws", 1);
+    expect(plan.blockedReason).toBeNull();
+    expect(plan.stages[4]?.underfedNote).toMatch(/60/);
+    expect(plan.stages[4]?.underfedNote).toMatch(/50/);
+    expect(layoutIssues(buildChainPlant(plan))).toEqual([]);
+  });
+
+  it("builds a foundry stair from two feed belts and blocks alloy on Mk1", () => {
+    const steel = solveChain("foundry-steel", 3);
+    expect(steel.stages.map((stage) => stage.machines)).toEqual([6]);
+    const plant = buildChainPlant(steel);
+    expect(layoutIssues(plant)).toEqual([]);
+    expect(plant.floors).toHaveLength(1);
+    expect(plant.ramps).toHaveLength(0);
+    expect(plant.solids.filter((solid) => solid.buildingId === "foundry")).toHaveLength(6);
+    const inputs = plant.belts.filter((belt) => belt.role === "ore-input");
+    expect([...new Set(inputs.map((belt) => belt.itemId))].sort()).toEqual(["coal", "iron-ore"]);
+    expect(new Set(inputs.map((belt) => belt.from.y)).size).toBe(2);
+
+    const alloy = solveChain("foundry-alloy", 1);
+    expect(alloy.blockedReason).toMatch(/Mk1/);
+    expect(solveChain("foundry-alloy", 2).stages.map((stage) => stage.machines)).toEqual([1]);
+    expect(layoutIssues(buildChainPlant(solveChain("foundry-alloy", 4)))).toEqual([]);
+  });
+
+  it("still reaches every floor of a three-story cable plant", () => {
+    const plant = buildChainPlant(solveChain("cable-copper", 2));
+    expect(plant.floors).toHaveLength(3);
+    expect(layoutIssues(plant)).toEqual([]);
+    const walks = plant.floors.map((floor) => floor.z + 1);
+    for (const walk of walks) {
+      const landed = plant.ramps.some((ramp) => ramp.kind === "rise" && Math.abs(ramp.to.y - walk) < 1e-6);
+      if (walk === walks[0]) continue;
+      expect(landed).toBe(true);
+    }
   });
 });
