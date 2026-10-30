@@ -74,7 +74,7 @@ export const CHAINS = {
     productId: "cable",
     title: "Cable",
     choiceLabel: "Copper wire",
-    lede: "Default Cable recipe fed by copper Wire. Copper ore to ingots, wire, then cable.",
+    lede: "Cable from copper wire. This is the feed selected when you first pick Cable. Copper ore to ingots, wire, then cable.",
     stages: ["copper-ingot", "wire", "cable"],
   },
   "cable-iron": {
@@ -82,7 +82,7 @@ export const CHAINS = {
     productId: "cable",
     title: "Cable",
     choiceLabel: "Iron wire",
-    lede: "Default Cable recipe fed by Iron Wire. Iron ore to ingots, wire, then cable.",
+    lede: "Cable from Iron Wire. Iron ore to ingots, wire, then cable.",
     stages: ["iron-ingot", "iron-wire", "cable"],
   },
 } as const satisfies Record<string, ChainDef>;

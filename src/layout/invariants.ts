@@ -61,17 +61,29 @@ export function layoutIssues(plant: Plant): string[] {
         if (Math.abs(belt.designPerMin - surplus) > 1e-6) issues.push(`${belt.id} is not the surplus rate`);
       }
       if (!smart || !sink || !bank) issues.push(`${stage.recipeId} overflow path is missing a building`);
-      if (smart && sink && !(sink.base.z > smart.base.z)) issues.push(`${stage.recipeId} sink is not after the splitter`);
-      if (sink && bank && !(bank.base.z > sink.base.z + sink.size.z / 2)) {
-        issues.push(`${stage.recipeId} bank is not after the sink`);
+      const row = plant.rows.find((item) => item.id === stage.recipeId);
+      if (smart && smart.base.x >= plant.feedEndX) issues.push(`${stage.recipeId} smart splitter is not at the feed end`);
+      if (smart && row && smart.base.x > row.feedEndX) issues.push(`${stage.recipeId} smart splitter is on the open end`);
+      if (sink && sink.base.x >= plant.feedEndX) issues.push(`${stage.recipeId} sink is not at the feed end`);
+      if (sink && smart && Math.abs(sink.base.x - smart.base.x) > 1e-6) {
+        issues.push(`${stage.recipeId} overflow does not run straight from the splitter`);
+      }
+      if (sink && smart && !(sink.base.z > smart.base.z)) issues.push(`${stage.recipeId} sink is not beside the splitter`);
+      const overflowBelt = overflow.find((belt) => belt.id.endsWith("overflow-to-sink"));
+      if (overflowBelt && sink) {
+        const endZ = Math.max(overflowBelt.from.z, overflowBelt.to.z);
+        if (endZ > sink.base.z - sink.size.z / 2 + 1e-6) issues.push(`${stage.recipeId} overflow belt runs past the sink`);
+        if (Math.abs(overflowBelt.from.x - overflowBelt.to.x) > 1e-6) {
+          issues.push(`${stage.recipeId} overflow belt is not a straight side output`);
+        }
       }
       const sinkBox = BUILDINGS.awesomeSink;
-      const bankBox = BUILDINGS.storageContainer;
+      const bankBox = BUILDINGS.storageIndustrial;
       if (sink && (sink.size.x !== sinkBox.width || sink.size.y !== sinkBox.height || sink.size.z !== sinkBox.length)) {
         issues.push(`${stage.recipeId} sink is not the wiki footprint`);
       }
-      if (bank && (bank.size.x !== bankBox.width || bank.size.y !== bankBox.height || bank.size.z !== bankBox.length)) {
-        issues.push(`${stage.recipeId} bank is not the storage container footprint`);
+      if (bank && (bank.size.x !== bankBox.length || bank.size.y !== bankBox.height || bank.size.z !== bankBox.width)) {
+        issues.push(`${stage.recipeId} bank is not the industrial storage footprint`);
       }
       if (smart && (smart.size.x !== 4 || smart.size.y !== 1 || smart.size.z !== 4)) {
         issues.push(`${stage.recipeId} smart splitter is not 4×4×1`);
@@ -122,7 +134,7 @@ export function layoutIssues(plant: Plant): string[] {
     if ((solid.kind === "splitter" || solid.kind === "merger") && (solid.size.x !== 4 || solid.size.y !== 1 || solid.size.z !== 4)) {
       issues.push(`${solid.id} is not a 4×4×1 ${solid.kind}`);
     }
-    if (solid.kind === "buffer") {
+    if (solid.kind === "buffer" || solid.kind === "bank") {
       const box = BUILDINGS.storageIndustrial;
       if (solid.size.x !== box.length || solid.size.y !== box.height || solid.size.z !== box.width) {
         issues.push("buffer does not match the industrial storage footprint");
@@ -233,7 +245,7 @@ export function layoutIssues(plant: Plant): string[] {
   }
 
   for (const solid of plant.solids) {
-    if (solid.kind !== "lift" && solid.kind !== "buffer") continue;
+    if (solid.kind !== "lift" && solid.kind !== "buffer" && solid.kind !== "bank" && solid.kind !== "smartSplitter" && solid.kind !== "sink") continue;
     const box = solidAabb(solid);
     if (box.max.x > plant.feedEndX + 1e-6) issues.push(`${solid.id} is not kept at the feed end`);
     if (box.min.x > rowOpen(plant)) issues.push(`${solid.id} blocks the open end`);

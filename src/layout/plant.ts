@@ -120,9 +120,9 @@ export function buildChainPlant(plan: ChainPlan): Plant {
   };
 
   const apron = apronTiles(rows.length);
-  const rowMeta = rows.map((row, index) => {
+  const rowMeta = rows.map((row) => {
     const openEndX = row.count * row.strideTiles * TILE;
-    layRow(draft, row, openEndX, apron, mergerZ, index);
+    layRow(draft, row, openEndX, apron, mergerZ);
     return {
       id: row.id,
       floorId: row.floor.id,
@@ -247,14 +247,7 @@ function addBelt(
   draft.belts.push({ id, from, to, mk: draft.mk, ...fields });
 }
 
-function layRow(
-  draft: Draft,
-  row: RowSpec,
-  openEndX: number,
-  apron: number,
-  mergerZ: number,
-  floorIndex: number,
-): void {
+function layRow(draft: Draft, row: RowSpec, openEndX: number, apron: number, mergerZ: number): void {
   const building = BUILDINGS[row.buildingId];
   const yWalk = walkY(row.floor);
   const yBelt = beltCenterY(row.floor);
@@ -368,10 +361,6 @@ function layRow(
     position: { x: openEndX + TILE * 0.75, y: yWalk + 0.35, z: INPUT_Z - 3 },
   });
 
-  if (row.surplusPerMin > SURPLUS_EPSILON) {
-    layOverflow(draft, row, mergerZ, yWalk, yBelt, lastX, floorIndex);
-  }
-
   if (row.underfedNote) {
     draft.labels.push({
       id: `${row.id}-underfed`,
@@ -382,65 +371,63 @@ function layRow(
 }
 
 /**
- * Surplus leaves the last merger outward (+z), clear of the other rows.
- * Smart splitter, then the AWESOME Sink, then the storage container.
- * The sink has one input, so the bank is the splitter's other output.
+ * Surplus block at the feed end of this stage's merged output.
+ * Any continues toward the industrial storage. Overflow goes +z straight into the sink.
+ * Floors are spaced in x so a 24 m sink does not sit on the next floor's belt.
  */
-function layOverflow(
+function layFeedSurplus(
   draft: Draft,
   row: RowSpec,
   mergerZ: number,
   yWalk: number,
   yBelt: number,
-  lastX: number,
-  floorIndex: number,
+  firstFace: number,
+  liftXPos: number,
+  splitX: number,
 ): void {
   const sink = BUILDINGS.awesomeSink;
-  const bank = BUILDINGS.storageContainer;
-  const gap = 2;
-  const splitZ = mergerZ + SPLIT / 2 + gap + SPLIT / 2;
-  const sinkMinZ = splitZ + SPLIT / 2 + gap;
+  const sinkMinZ = 32;
   const sinkZ = sinkMinZ + sink.length / 2;
-  const bankMinZ = sinkMinZ + sink.length + gap;
-  const bankZ = bankMinZ + bank.length / 2;
-  // Each floor gets its own lane. A 24 m sink reaches the belt height of the floor above.
-  const laneX = outwardLaneX(lastX, SPLIT / 2 + gap) + floorIndex * (sink.width + gap);
-  const bankX = laneX + sink.width / 2 + gap + bank.width / 2;
-
   const flow = {
     itemId: row.outputItem,
     role: "overflow-stub" as const,
     rowId: row.id,
     designPerMin: row.surplusPerMin,
   };
+  const main = {
+    itemId: row.outputItem,
+    role: "stage-link" as const,
+    rowId: row.id,
+    designPerMin: row.outputPerMin,
+  };
 
   addBelt(
     draft,
-    `${row.id}-overflow-to-split`,
-    { x: lastX, y: yBelt, z: mergerZ + SPLIT / 2 },
-    { x: lastX, y: yBelt, z: splitZ - SPLIT / 2 },
-    flow,
+    `${row.id}-to-split`,
+    { x: firstFace, y: yBelt, z: mergerZ },
+    { x: splitX + SPLIT / 2, y: yBelt, z: mergerZ },
+    main,
   );
   draft.solids.push({
     id: `${row.id}-smart`,
     kind: "smartSplitter",
     floorId: row.floor.id,
     rowId: row.id,
-    base: { x: lastX, y: yWalk, z: splitZ },
+    base: { x: splitX, y: yWalk, z: mergerZ },
     size: { x: SPLIT, y: BUILDINGS.smartSplitter.height, z: SPLIT },
   });
   addBelt(
     draft,
-    `${row.id}-overflow-to-lane`,
-    { x: lastX + SPLIT / 2, y: yBelt, z: splitZ },
-    { x: laneX, y: yBelt, z: splitZ },
-    flow,
+    `${row.id}-any-to-lift`,
+    { x: splitX - SPLIT / 2, y: yBelt, z: mergerZ },
+    { x: liftXPos, y: yBelt, z: mergerZ },
+    main,
   );
   addBelt(
     draft,
     `${row.id}-overflow-to-sink`,
-    { x: laneX, y: yBelt, z: splitZ },
-    { x: laneX, y: yBelt, z: sinkMinZ },
+    { x: splitX, y: yBelt, z: mergerZ + SPLIT / 2 },
+    { x: splitX, y: yBelt, z: sinkMinZ },
     flow,
   );
   draft.solids.push({
@@ -448,66 +435,44 @@ function layOverflow(
     kind: "sink",
     floorId: row.floor.id,
     rowId: row.id,
-    base: { x: laneX, y: yWalk, z: sinkZ },
+    base: { x: splitX, y: yWalk, z: sinkZ },
     size: { x: sink.width, y: sink.height, z: sink.length },
   });
-  addBelt(
-    draft,
-    `${row.id}-overflow-to-bank-x`,
-    { x: laneX, y: yBelt, z: splitZ },
-    { x: bankX, y: yBelt, z: splitZ },
-    flow,
-  );
-  addBelt(
-    draft,
-    `${row.id}-overflow-to-bank-z`,
-    { x: bankX, y: yBelt, z: splitZ },
-    { x: bankX, y: yBelt, z: bankMinZ },
-    flow,
-  );
-  draft.solids.push({
-    id: `${row.id}-bank`,
-    kind: "bank",
-    floorId: row.floor.id,
-    rowId: row.id,
-    base: { x: bankX, y: yWalk, z: bankZ },
-    size: { x: bank.width, y: bank.height, z: bank.length },
-  });
-
   coverFoundations(
     draft,
     row.floor,
-    Math.min(lastX - SPLIT / 2, laneX - sink.width / 2),
-    bankX + bank.width / 2,
+    splitX - sink.width / 2,
+    splitX + sink.width / 2,
     mergerZ,
-    bankZ + bank.length / 2,
+    sinkZ + sink.length / 2,
   );
-
   draft.labels.push(
     {
       id: `${row.id}-smart-label`,
       text: "Smart splitter",
-      position: { x: lastX, y: yWalk + 2.4, z: splitZ },
+      position: { x: splitX, y: yWalk + 2.6, z: mergerZ },
+    },
+    {
+      id: `${row.id}-any-label`,
+      text: "Any",
+      position: { x: splitX - 6, y: yWalk + 2.2, z: mergerZ },
+    },
+    {
+      id: `${row.id}-overflow-label`,
+      text: "Overflow",
+      position: { x: splitX, y: yWalk + 2.2, z: mergerZ + 6 },
     },
     {
       id: `${row.id}-sink-label`,
       text: "Awesome Sink",
-      position: { x: laneX, y: yWalk + sink.height + 1.2, z: sinkZ },
-    },
-    {
-      id: `${row.id}-bank-label`,
-      text: "Bank",
-      position: { x: bankX, y: yWalk + bank.height + 1.2, z: bankZ },
+      position: { x: splitX, y: yWalk + sink.height + 1.2, z: sinkZ },
     },
   );
 }
 
-/** Belt lane on the 8 m mod 16 grid, clear of the support columns. */
-function outwardLaneX(originX: number, minOffset: number): number {
-  const minX = originX + minOffset;
-  let x = Math.ceil((minX - 8) / 16) * 16 + 8;
-  if (x < minX) x += 16;
-  return x;
+/** Feed-apron x for this stage's output. Higher floors sit closer to the machines. */
+function feedSplitX(gap: number, gaps: number): number {
+  return -10 - (gaps - 1 - gap) * (BUILDINGS.awesomeSink.width + 2);
 }
 
 function coverFoundations(
@@ -609,13 +574,17 @@ function layStageLink(
 
   addFoundation(draft, lower.floor, tileIndex(x), tileIndex(LIFT_Z));
 
-  addBelt(
-    draft,
-    `${lower.id}-to-lift-x`,
-    { x: firstFace, y: yLower, z: mergerZ },
-    { x, y: yLower, z: mergerZ },
-    { itemId: item, role: "stage-link", rowId: lower.id, designPerMin: lowerStage.outputPerMin },
-  );
+  if (lower.surplusPerMin > SURPLUS_EPSILON) {
+    layFeedSurplus(draft, lower, mergerZ, walkY(lower.floor), yLower, firstFace, x, feedSplitX(gap, gaps));
+  } else {
+    addBelt(
+      draft,
+      `${lower.id}-to-lift-x`,
+      { x: firstFace, y: yLower, z: mergerZ },
+      { x, y: yLower, z: mergerZ },
+      { itemId: item, role: "stage-link", rowId: lower.id, designPerMin: lowerStage.outputPerMin },
+    );
+  }
   addBelt(
     draft,
     `${lower.id}-to-lift-z`,
@@ -633,10 +602,12 @@ function layStageLink(
     size: { x: LIFT.width, y: liftHeight, z: LIFT.length },
   });
 
+  const surplus = lower.surplusPerMin > SURPLUS_EPSILON;
   draft.solids.push({
     id: `buffer-${upper.id}`,
-    kind: "buffer",
+    kind: surplus ? "bank" : "buffer",
     floorId: upper.floor.id,
+    rowId: lower.id,
     base: { x: BUFFER_X, y: walkY(upper.floor), z: INPUT_Z },
     size: { x: storage.length, y: storage.height, z: storage.width },
   });
@@ -665,7 +636,7 @@ function layStageLink(
 
   draft.labels.push({
     id: `label-buffer-${upper.id}`,
-    text: `${itemName(item)} buffer`,
+    text: surplus ? "Bank" : `${itemName(item)} buffer`,
     position: { x: BUFFER_X, y: walkY(upper.floor) + storage.height + 0.6, z: INPUT_Z },
   });
 }

@@ -175,6 +175,12 @@ function renderSummary(host: HTMLElement, plant: Plant): void {
   if (goal) {
     lines.push(`${trim(goal.outputPerMin)} ${itemName(plan.goalItemId)} / min`);
   }
+  for (const [index, stage] of plan.stages.entries()) {
+    const recipe = RECIPES[stage.recipeId];
+    const building = BUILDINGS[recipe.buildingId];
+    const noun = stage.machines === 1 ? building.name : `${building.name}s`;
+    lines.push(`count:${stage.machines} ${noun} · Floor ${index + 1}`);
+  }
   if (plan.limitNote) lines.push(plan.limitNote);
   for (const stage of plan.stages) {
     if (stage.underfedNote) lines.push(stage.underfedNote);
@@ -191,7 +197,7 @@ function renderSummary(host: HTMLElement, plant: Plant): void {
     if (next.underfedNote) continue;
     lines.push(
       surplus > SURPLUS_EPSILON
-        ? `Surplus ${trim(surplus)} ${item} / min backs up in the buffer. Suggestion: smart splitter on overflow → Awesome Sink, then bank. Clocks stay at 100%.`
+        ? `Surplus ${trim(surplus)} ${item} / min. Feed end: smart splitter, Any to the bank, Overflow to the Awesome Sink. Clocks stay at 100%.`
         : `${item} balances the next machines. Clocks stay at 100%.`,
     );
   }
@@ -206,7 +212,12 @@ function renderSummary(host: HTMLElement, plant: Plant): void {
   for (const [index, line] of lines.entries()) {
     const p = document.createElement("p");
     if (index === 0) p.className = "stat";
-    else if (line.includes("is receiving")) p.className = "warn";
+    else if (line.startsWith("count:")) {
+      p.className = "counts";
+      p.textContent = line.slice("count:".length);
+      host.append(p);
+      continue;
+    } else if (line.includes("is receiving")) p.className = "warn";
     p.textContent = line;
     host.append(p);
   }

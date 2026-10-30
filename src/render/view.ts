@@ -11,7 +11,6 @@ import {
   SMART_SPLITTER_PARTS,
   SMELTER_PARTS,
   SPLITTER_PARTS,
-  STORAGE_CONTAINER_PARTS,
   type PartMaterial,
   type SolidPart,
 } from "../data/parts";
@@ -102,7 +101,7 @@ export class FactoryView {
       ["buffer", groupFromParts(BUFFER_PARTS, this.materials)],
       ["smartSplitter", groupFromParts(SMART_SPLITTER_PARTS, this.materials)],
       ["sink", groupFromParts(AWESOME_SINK_PARTS, this.materials)],
-      ["bank", groupFromParts(STORAGE_CONTAINER_PARTS, this.materials)],
+      ["bank", groupFromParts(BUFFER_PARTS, this.materials)],
     ]);
 
     const hemi = new THREE.HemisphereLight("#d5e2ea", "#6d675e", 0.72);
@@ -247,7 +246,7 @@ export class FactoryView {
         if (!proto) continue;
         const mesh = proto.clone(true);
         placeBase(mesh, solid);
-        if (solid.kind === "smartSplitter") mesh.rotation.y = -Math.PI / 2;
+        if (solid.kind === "smartSplitter") mesh.rotation.y = Math.PI;
         root.add(mesh);
       } else if (solid.kind === "lift") {
         root.add(liftMesh(solid, this.supportMat, this.beltTop));
