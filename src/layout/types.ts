@@ -20,7 +20,10 @@ export type SolidKind =
   | "merger"
   | "buffer"
   | "lift"
-  | "support";
+  | "support"
+  | "smartSplitter"
+  | "sink"
+  | "bank";
 
 export interface Solid {
   id: string;

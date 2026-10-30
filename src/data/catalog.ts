@@ -8,6 +8,12 @@
  * - Constructor (Desc_ConstructorMk1_C): 8 × 10 × 8.5 m
  * - Foundry (Desc_FoundryMk1_C): 10 × 10 × 9 m
  * - Conveyor Splitter / Merger: 4 × 4 m, height 2n+1 m (one unit is 1 m; stack step 2 m)
+ * - Smart Splitter (Desc_ConveyorAttachmentSplitterSmart_C): 4 × 4 m, height 2n+1 m
+ *   https://satisfactory.wiki.gg/wiki/Smart_Splitter
+ * - AWESOME Sink (Desc_ResourceSink_C): 16 × 13 × 24 m, one conveyor input
+ *   https://satisfactory.wiki.gg/wiki/AWESOME_Sink
+ * - Storage Container (Desc_StorageContainerMk1_C): 5 × 11 × 4 m, one input and one output
+ *   https://satisfactory.wiki.gg/wiki/Storage_Container
  * - Conveyor belt: 2 m wide × 1 m tall
  * - Industrial Storage Container (Desc_StorageContainerMk2_C): 5 × 11 × 8 m
  * - Foundation: 8 × 8 m. v1 emits the 1 m thickness only.
@@ -97,6 +103,37 @@ export const BUILDINGS = {
     height: 1,
     inputs: 1,
     outputs: 3,
+  },
+  smartSplitter: {
+    id: "smartSplitter",
+    name: "Smart Splitter",
+    className: "Desc_ConveyorAttachmentSplitterSmart_C",
+    width: 4,
+    length: 4,
+    /** Wiki height is 2n+1 m. One unit is 1 m, same as the conveyor splitter. */
+    height: 1,
+    inputs: 1,
+    outputs: 3,
+  },
+  awesomeSink: {
+    id: "awesomeSink",
+    name: "AWESOME Sink",
+    className: "Desc_ResourceSink_C",
+    width: 16,
+    length: 13,
+    height: 24,
+    inputs: 1,
+    outputs: 0,
+  },
+  storageContainer: {
+    id: "storageContainer",
+    name: "Storage Container",
+    className: "Desc_StorageContainerMk1_C",
+    width: 5,
+    length: 11,
+    height: 4,
+    inputs: 1,
+    outputs: 1,
   },
   merger: {
     id: "merger",

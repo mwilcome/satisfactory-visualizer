@@ -4,11 +4,14 @@ import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment
 import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import { WALKWAY } from "../data/catalog";
 import {
+  AWESOME_SINK_PARTS,
   BUFFER_PARTS,
   CONSTRUCTOR_PARTS,
   MERGER_PARTS,
+  SMART_SPLITTER_PARTS,
   SMELTER_PARTS,
   SPLITTER_PARTS,
+  STORAGE_CONTAINER_PARTS,
   type PartMaterial,
   type SolidPart,
 } from "../data/parts";
@@ -97,6 +100,9 @@ export class FactoryView {
       ["splitter", groupFromParts(SPLITTER_PARTS, this.materials)],
       ["merger", groupFromParts(MERGER_PARTS, this.materials)],
       ["buffer", groupFromParts(BUFFER_PARTS, this.materials)],
+      ["smartSplitter", groupFromParts(SMART_SPLITTER_PARTS, this.materials)],
+      ["sink", groupFromParts(AWESOME_SINK_PARTS, this.materials)],
+      ["bank", groupFromParts(STORAGE_CONTAINER_PARTS, this.materials)],
     ]);
 
     const hemi = new THREE.HemisphereLight("#d5e2ea", "#6d675e", 0.72);
@@ -229,11 +235,19 @@ export class FactoryView {
 
   private addLogistics(root: THREE.Group, plant: Plant): void {
     for (const solid of plant.solids) {
-      if (solid.kind === "splitter" || solid.kind === "merger" || solid.kind === "buffer") {
+      if (
+        solid.kind === "splitter" ||
+        solid.kind === "merger" ||
+        solid.kind === "buffer" ||
+        solid.kind === "smartSplitter" ||
+        solid.kind === "sink" ||
+        solid.kind === "bank"
+      ) {
         const proto = this.prototypes.get(solid.kind);
         if (!proto) continue;
         const mesh = proto.clone(true);
         placeBase(mesh, solid);
+        if (solid.kind === "smartSplitter") mesh.rotation.y = -Math.PI / 2;
         root.add(mesh);
       } else if (solid.kind === "lift") {
         root.add(liftMesh(solid, this.supportMat, this.beltTop));

@@ -42,19 +42,33 @@ export function layoutIssues(plant: Plant): string[] {
     }
     const overflow = plant.belts.filter((belt) => belt.role === "overflow-stub" && belt.rowId === stage.recipeId);
     const surplus = next ? stage.outputPerMin - next.inputPerMin : 0;
-    const row = plant.rows.find((item) => item.id === stage.recipeId);
+    const smart = plant.solids.find((solid) => solid.kind === "smartSplitter" && solid.rowId === stage.recipeId);
+    const sink = plant.solids.find((solid) => solid.kind === "sink" && solid.rowId === stage.recipeId);
+    const bank = plant.solids.find((solid) => solid.kind === "bank" && solid.rowId === stage.recipeId);
     if (surplus > SURPLUS_EPSILON) {
-      if (overflow.length !== 1) issues.push(`${stage.recipeId} surplus has no sink stub`);
-      const stub = overflow[0];
-      if (stub && output && stub.itemId !== output.itemId) issues.push(`${stub.id} is not the surplus item`);
-      if (stub && Math.abs(stub.designPerMin - surplus) > 1e-6) {
-        issues.push(`${stage.recipeId} sink stub is not the surplus rate`);
+      if (overflow.length < 1) issues.push(`${stage.recipeId} surplus has no overflow belts`);
+      for (const belt of overflow) {
+        if (output && belt.itemId !== output.itemId) issues.push(`${belt.id} is not the surplus item`);
+        if (Math.abs(belt.designPerMin - surplus) > 1e-6) issues.push(`${belt.id} is not the surplus rate`);
       }
-      if (stub && row && Math.max(stub.from.x, stub.to.x) <= row.openEndX) {
-        issues.push(`${stage.recipeId} sink stub does not enter the open end`);
+      if (!smart || !sink || !bank) issues.push(`${stage.recipeId} overflow path is missing a building`);
+      if (smart && sink && !(sink.base.z > smart.base.z)) issues.push(`${stage.recipeId} sink is not after the splitter`);
+      if (sink && bank && !(bank.base.z > sink.base.z + sink.size.z / 2)) {
+        issues.push(`${stage.recipeId} bank is not after the sink`);
       }
-    } else if (overflow.length > 0) {
-      issues.push(`${stage.recipeId} has a sink stub without surplus`);
+      const sinkBox = BUILDINGS.awesomeSink;
+      const bankBox = BUILDINGS.storageContainer;
+      if (sink && (sink.size.x !== sinkBox.width || sink.size.y !== sinkBox.height || sink.size.z !== sinkBox.length)) {
+        issues.push(`${stage.recipeId} sink is not the wiki footprint`);
+      }
+      if (bank && (bank.size.x !== bankBox.width || bank.size.y !== bankBox.height || bank.size.z !== bankBox.length)) {
+        issues.push(`${stage.recipeId} bank is not the storage container footprint`);
+      }
+      if (smart && (smart.size.x !== 4 || smart.size.y !== 1 || smart.size.z !== 4)) {
+        issues.push(`${stage.recipeId} smart splitter is not 4×4×1`);
+      }
+    } else if (overflow.length > 0 || smart || sink || bank) {
+      issues.push(`${stage.recipeId} has an overflow path without surplus`);
     }
   }
 
@@ -238,7 +252,7 @@ export function layoutIssues(plant: Plant): string[] {
     }
   }
 
-  const blockers: Solid["kind"][] = ["machine", "splitter", "merger", "buffer", "lift"];
+  const blockers: Solid["kind"][] = ["machine", "splitter", "merger", "buffer", "lift", "smartSplitter", "sink", "bank"];
   for (const support of plant.solids.filter((solid) => solid.kind === "support")) {
     const box = solidAabb(support);
     for (const solid of plant.solids) {
@@ -252,6 +266,18 @@ export function layoutIssues(plant: Plant): string[] {
     }
     for (const ramp of plant.ramps) {
       if (overlaps(box, rampAabb(ramp))) issues.push(`${support.id} intersects ${ramp.id}`);
+    }
+  }
+
+  for (const solid of plant.solids) {
+    if (solid.kind !== "smartSplitter" && solid.kind !== "sink" && solid.kind !== "bank") continue;
+    const box = solidAabb(solid);
+    for (const belt of plant.belts) {
+      if (overlaps(box, beltAabb(belt))) issues.push(`${belt.id} intersects ${solid.id}`);
+    }
+    for (const other of plant.solids) {
+      if (other.id === solid.id || other.kind === "foundation" || other.kind === "support") continue;
+      if (overlaps(box, solidAabb(other))) issues.push(`${solid.id} overlaps ${other.id}`);
     }
   }
 

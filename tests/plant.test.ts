@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import { BUILDINGS, FOUNDATION_HEIGHTS_LATER_M, storyAirM, storyClearanceM } from "../src/data/catalog";
 import { CHAINS, standardChain, type ChainId } from "../src/data/chains";
 import {
+  AWESOME_SINK_PARTS,
   BUFFER_PARTS,
   CONSTRUCTOR_PARTS,
   MERGER_PARTS,
+  SMART_SPLITTER_PARTS,
   SMELTER_PARTS,
   SPLITTER_PARTS,
+  STORAGE_CONTAINER_PARTS,
   footprintErrors,
 } from "../src/data/parts";
 import { layoutIssues } from "../src/layout/invariants";
@@ -35,6 +38,9 @@ describe("wiki footprints", () => {
     expect(footprintErrors(SPLITTER_PARTS, { x: 4, y: 1, z: 4 })).toEqual([]);
     expect(footprintErrors(MERGER_PARTS, { x: 4, y: 1, z: 4 })).toEqual([]);
     expect(footprintErrors(BUFFER_PARTS, { x: 11, y: 8, z: 5 })).toEqual([]);
+    expect(footprintErrors(SMART_SPLITTER_PARTS, { x: 4, y: 1, z: 4 })).toEqual([]);
+    expect(footprintErrors(STORAGE_CONTAINER_PARTS, { x: 5, y: 4, z: 11 })).toEqual([]);
+    expect(footprintErrors(AWESOME_SINK_PARTS, { x: 16, y: 24, z: 13 })).toEqual([]);
   });
 
   it("encodes 1 m foundations and wall-height stories", () => {
@@ -82,15 +88,20 @@ describe("manifold layout", () => {
     });
   }
 
-  it("puts a sink stub on the open end only where a stage has surplus", () => {
+  it("builds smart splitter, sink, then storage only where a stage has surplus", () => {
     const screws = buildDemoPlant(3);
-    const stubs = screws.belts.filter((belt) => belt.role === "overflow-stub");
-    expect(stubs.map((belt) => belt.rowId)).toEqual(["iron-ingot"]);
-    expect(stubs[0]?.designPerMin).toBe(27.5);
-    expect(screws.labels.some((label) => label.text === "Sink stub")).toBe(true);
+    const sink = screws.solids.find((solid) => solid.kind === "sink");
+    const bank = screws.solids.find((solid) => solid.kind === "bank");
+    const smart = screws.solids.find((solid) => solid.kind === "smartSplitter");
+    expect(smart?.size).toEqual({ x: 4, y: 1, z: 4 });
+    expect(sink?.size).toEqual({ x: 16, y: 24, z: 13 });
+    expect(bank?.size).toEqual({ x: 5, y: 4, z: 11 });
+    expect(sink && smart && sink.base.z > smart.base.z).toBe(true);
+    expect(bank && sink && bank.base.z > sink.base.z + sink.size.z / 2).toBe(true);
+    expect(screws.belts.some((belt) => belt.role === "overflow-stub" && belt.designPerMin === 27.5)).toBe(true);
 
     const plate = buildChainPlant(solveChain("iron-plate", 3));
-    expect(plate.belts.some((belt) => belt.role === "overflow-stub")).toBe(false);
+    expect(plate.solids.some((solid) => solid.kind === "sink")).toBe(false);
   });
 });
 
