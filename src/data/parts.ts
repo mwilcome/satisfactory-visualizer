@@ -188,13 +188,19 @@ export const AWESOME_SINK_PARTS: SolidPart[] = [
   { size: [3.2, 0.7, 1.6], center: [0, 23.65, 4.9], material: "orange" },
 ];
 
-/** Industrial storage, length along x. Footprint 11 × 5 × 8. */
+/**
+ * Industrial storage, length along x. Footprint 11 × 5 × 8.
+ * End ports are centered on the ±x faces. Their center is 1.15 m above the base,
+ * and the opening is wide enough for the 2 m belt.
+ */
+export const INDUSTRIAL_PORT_Y = 1.15;
+
 export const BUFFER_PARTS: SolidPart[] = [
   { size: [11, 7.2, 5], center: [0, 3.6, 0], material: "splitter" },
   { size: [11, 0.45, 5], center: [0, 7.775, 0], material: "dark" },
   { size: [10.2, 0.28, 4.55], center: [0, 2.15, 0], material: "dark" },
   { size: [10.2, 0.28, 4.55], center: [0, 4.35, 0], material: "dark" },
   { size: [10.2, 0.28, 4.55], center: [0, 6.2, 0], material: "dark" },
-  { size: [0.1, 1.15, 1.35], center: [-5.45, 1.15, 0], material: "port" },
-  { size: [0.1, 1.15, 1.35], center: [5.45, 1.15, 0], material: "port" },
+  { size: [0.08, 1.5, 2.2], center: [-5.46, INDUSTRIAL_PORT_Y, 0], material: "port" },
+  { size: [0.08, 1.5, 2.2], center: [5.46, INDUSTRIAL_PORT_Y, 0], material: "port" },
 ];

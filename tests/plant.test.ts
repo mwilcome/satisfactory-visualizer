@@ -13,6 +13,7 @@ import {
   STORAGE_CONTAINER_PARTS,
   footprintErrors,
 } from "../src/data/parts";
+import { INDUSTRIAL_PORT_Y } from "../src/data/parts";
 import { layoutIssues } from "../src/layout/invariants";
 import { buildChainPlant, buildDemoPlant } from "../src/layout/plant";
 import { solveChain } from "../src/solve/chain";
@@ -104,6 +105,14 @@ describe("manifold layout", () => {
     expect(screws.labels.some((label) => label.text === "Any")).toBe(true);
     expect(screws.labels.some((label) => label.text === "Overflow out (to sink)")).toBe(true);
     expect(screws.labels.some((label) => label.text === "Bank")).toBe(true);
+    const portIn = screws.belts.find((belt) => belt.id.endsWith("to-buffer-port"));
+    const portOut = screws.belts.find((belt) => belt.id.endsWith("from-buffer-port"));
+    if (!bank || !portIn || !portOut) throw new Error("bank ports missing");
+    expect(portIn.to.x).toBeCloseTo(bank.base.x - bank.size.x / 2);
+    expect(portIn.to.y).toBeCloseTo(bank.base.y + INDUSTRIAL_PORT_Y);
+    expect(portIn.to.z).toBeCloseTo(bank.base.z);
+    expect(portOut.from.x).toBeCloseTo(bank.base.x + bank.size.x / 2);
+    expect(portOut.from.y).toBeCloseTo(bank.base.y + INDUSTRIAL_PORT_Y);
 
     const plate = buildChainPlant(solveChain("iron-plate", 3));
     expect(plate.solids.some((solid) => solid.kind === "sink" || solid.kind === "smartSplitter")).toBe(false);

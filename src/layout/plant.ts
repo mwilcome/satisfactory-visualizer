@@ -12,6 +12,7 @@ import {
   type BuildingId,
   type ItemId,
 } from "../data/catalog";
+import { INDUSTRIAL_PORT_Y } from "../data/parts";
 import type { ChainId } from "../data/chains";
 import { SURPLUS_EPSILON, solveChain, type ChainPlan, type StagePlan } from "../solve/chain";
 import type { Belt, Floor, Plant, PlantLabel, Ramp, Solid, Vec3, WalkCorridor } from "./types";
@@ -581,19 +582,63 @@ function layStageLink(
     { x, y: yUpper, z: INPUT_Z },
     { itemId: item, role: "stage-link", rowId: upper.id, designPerMin: lowerStage.outputPerMin },
   );
+  const faceIn = BUFFER_X - storage.length / 2;
+  const faceOut = BUFFER_X + storage.length / 2;
+  const stand = 1;
+  const portY = walkY(upper.floor) + INDUSTRIAL_PORT_Y;
+  const intoBank = {
+    itemId: item,
+    role: "stage-link" as const,
+    rowId: upper.id,
+    designPerMin: lowerStage.outputPerMin,
+  };
   addBelt(
     draft,
     `${upper.id}-to-buffer`,
     { x, y: yUpper, z: INPUT_Z },
-    { x: BUFFER_X - storage.length / 2, y: yUpper, z: INPUT_Z },
-    { itemId: item, role: "stage-link", rowId: upper.id, designPerMin: lowerStage.outputPerMin },
+    { x: faceIn - stand, y: yUpper, z: INPUT_Z },
+    intoBank,
+  );
+  addBelt(
+    draft,
+    `${upper.id}-to-buffer-up`,
+    { x: faceIn - stand, y: yUpper, z: INPUT_Z },
+    { x: faceIn - stand, y: portY, z: INPUT_Z },
+    intoBank,
+  );
+  addBelt(
+    draft,
+    `${upper.id}-to-buffer-port`,
+    { x: faceIn - stand, y: portY, z: INPUT_Z },
+    { x: faceIn, y: portY, z: INPUT_Z },
+    intoBank,
+  );
+  const outOfBank = {
+    itemId: item,
+    role: "input-manifold" as const,
+    rowId: upper.id,
+    designPerMin: upperStage.inputPerMin,
+  };
+  addBelt(
+    draft,
+    `${upper.id}-from-buffer-port`,
+    { x: faceOut, y: portY, z: INPUT_Z },
+    { x: faceOut + stand, y: portY, z: INPUT_Z },
+    outOfBank,
+  );
+  addBelt(
+    draft,
+    `${upper.id}-from-buffer-down`,
+    { x: faceOut + stand, y: portY, z: INPUT_Z },
+    { x: faceOut + stand, y: yUpper, z: INPUT_Z },
+    outOfBank,
   );
   addBelt(
     draft,
     `${upper.id}-from-buffer`,
-    { x: BUFFER_X + storage.length / 2, y: yUpper, z: INPUT_Z },
+    { x: faceOut + stand, y: yUpper, z: INPUT_Z },
     { x: firstFace, y: yUpper, z: INPUT_Z },
-    { itemId: item, role: "input-manifold", rowId: upper.id, designPerMin: upperStage.inputPerMin },
+    outOfBank,
   );
 
   draft.labels.push({
