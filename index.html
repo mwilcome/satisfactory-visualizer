@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Screws from iron — Satisfactory visualizer</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="viewport"></div>
+    <aside id="panel">
+      <p class="eyebrow">Satisfactory visualizer</p>
+      <h1>Screws from iron</h1>
+      <p class="lede">
+        Cast Screws alternate. Iron ore arrives on a belt, smelters make ingots, constructors cast screws.
+      </p>
+      <button type="button" id="demo">Demo: Screws from Iron</button>
+      <fieldset>
+        <legend>Belt mark</legend>
+        <div class="marks">
+          <label><input type="radio" name="mk" value="1" /> Mk1 · 60</label>
+          <label><input type="radio" name="mk" value="2" /> Mk2 · 120</label>
+          <label><input type="radio" name="mk" value="3" checked /> Mk3 · 270</label>
+          <label><input type="radio" name="mk" value="4" /> Mk4 · 480</label>
+        </div>
+      </fieldset>
+      <div id="summary" aria-live="polite"></div>
+      <p class="hint">Drag to orbit. Scroll to zoom. No walking camera yet.</p>
+    </aside>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

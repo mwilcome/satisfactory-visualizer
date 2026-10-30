@@ -1,0 +1,10 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# Single-page shell. The app has no client router, but a fallback
+# keeps a refresh on any path from 404ing if one is added later.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
