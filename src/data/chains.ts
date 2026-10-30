@@ -6,8 +6,8 @@ import { RECIPES, type RecipeId } from "./catalog";
  * (Coated Iron Plate, Steel Screws, Insulated Cable, …) are not listed.
  *
  * Cable's constructor recipe is the same either way. The two cable chains
- * differ by which Wire recipe feeds them. The wiki does not mark one
- * feedstock as the default, so `implicit` is false and the UI waits.
+ * differ by which Wire recipe feeds them. With no saved choice, Cable
+ * opens on copper wire. Iron Wire stays the other feed.
  */
 export type ProductId = "screws" | "iron-plate" | "iron-rod" | "wire" | "cable";
 
@@ -94,11 +94,6 @@ export interface ProductDef {
   name: string;
   legend: string;
   chains: readonly ChainId[];
-  /**
-   * When false, a multi-chain product has no wiki-default chain.
-   * Cable shares one constructor recipe; the wire feedstock is a choice.
-   */
-  implicit: boolean;
 }
 
 export const PRODUCTS: Record<ProductId, ProductDef> = {
@@ -107,35 +102,30 @@ export const PRODUCTS: Record<ProductId, ProductDef> = {
     name: "Screws",
     legend: "Recipe",
     chains: ["cast-screw", "screw-rod"],
-    implicit: true,
   },
   "iron-plate": {
     id: "iron-plate",
     name: "Iron Plate",
     legend: "Recipe",
     chains: ["iron-plate"],
-    implicit: true,
   },
   "iron-rod": {
     id: "iron-rod",
     name: "Iron Rod",
     legend: "Recipe",
     chains: ["iron-rod"],
-    implicit: true,
   },
   wire: {
     id: "wire",
     name: "Wire",
     legend: "Recipe",
     chains: ["wire-copper", "wire-iron"],
-    implicit: true,
   },
   cable: {
     id: "cable",
     name: "Cable",
     legend: "Wire chain",
     chains: ["cable-copper", "cable-iron"],
-    implicit: false,
   },
 };
 
@@ -161,18 +151,23 @@ export function productOf(chainId: ChainId): ProductId {
 
 /**
  * Chain to use when this product has no saved choice.
- * A single chain is that chain. A multi-chain product uses the one
- * non-alternate final recipe (Wire → copper, Screws → Iron Rod).
- * Cable returns null: both chains use the same Cable recipe.
+ * A single chain is that chain. Wire uses the non-alternate recipe (copper).
+ * Screws uses the non-alternate recipe (Iron Rod) unless Cast Screws was saved.
+ * Cable opens on copper wire. Both cable chains share the Cable recipe.
  */
-export function standardChain(productId: ProductId): ChainId | null {
+export function standardChain(productId: ProductId): ChainId {
   const product = PRODUCTS[productId];
-  if (product.chains.length === 1) return product.chains[0] ?? null;
-  if (!product.implicit) return null;
+  if (product.chains.length === 1) {
+    const only = product.chains[0];
+    if (only) return only;
+  }
+  if (productId === "cable") return "cable-copper";
   const matches = product.chains.filter((id) => {
     const stages = CHAINS[id].stages;
     const finalId = stages[stages.length - 1];
     return finalId ? !RECIPES[finalId].alternate : false;
   });
-  return matches.length === 1 ? (matches[0] ?? null) : null;
+  const chainId = matches.length === 1 ? matches[0] : undefined;
+  if (!chainId) throw new Error(`No standard chain for ${productId}.`);
+  return chainId;
 }

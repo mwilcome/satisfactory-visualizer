@@ -38,7 +38,7 @@ Checked against satisfactory.wiki.gg at 100% clock. The picker is smelter + cons
 - **Iron Plate** — Constructor, 6 s. 3 iron ingots (30/min) → 2 iron plates (20/min).
 - **Wire** — Constructor, 4 s. 1 copper ingot (15/min) → 2 wire (30/min).
 - **Iron Wire** — Constructor, 24 s. 5 iron ingots (12.5/min) → 9 wire (22.5/min).
-- **Cable** — Constructor, 2 s. 2 wire (60/min) → 1 cable (30/min). Copper wire or Iron Wire can feed it.
+- **Cable** — Constructor, 2 s. 2 wire (60/min) → 1 cable (30/min). Opens on copper wire. Iron Wire is the other feed.
 
 Machines stay at 100%. If a stage makes more than the next stage draws, the extra backs up in that stage's buffer. Mk1 cannot feed Cable from Iron Wire (45 wire/min on the belt, 60 drawn by one constructor); the panel says so.
 

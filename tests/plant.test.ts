@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BUILDINGS, FOUNDATION_HEIGHTS_LATER_M, storyAirM, storyClearanceM } from "../src/data/catalog";
-import { CHAINS, type ChainId } from "../src/data/chains";
+import { CHAINS, standardChain, type ChainId } from "../src/data/chains";
 import {
   BUFFER_PARTS,
   CONSTRUCTOR_PARTS,
@@ -125,6 +125,11 @@ describe("other chains", () => {
 });
 
 describe("saved output", () => {
+  it("opens Cable on the copper wire feed", () => {
+    expect(standardChain("cable")).toBe("cable-copper");
+    expect(standardChain("wire")).toBe("wire-copper");
+  });
+
   it("opens on Cast Screws at Mk3 when nothing is stored", () => {
     expect(parseSelection(null)).toMatchObject({ chainId: "cast-screw", mk: 3 });
   });

@@ -51,8 +51,6 @@ const recipesHost: HTMLElement = recipesEl;
 const view = new FactoryView(viewport);
 
 let selection = parseSelection(localStorage.getItem(STORAGE_KEY));
-/** Set while Cable is selected and no wire chain has been picked yet. */
-let pendingProduct: ProductId | null = null;
 
 function persist(): void {
   localStorage.setItem(STORAGE_KEY, serializeSelection(selection));
@@ -70,7 +68,6 @@ function setMk(mk: BeltMk): void {
 }
 
 function showChain(chainId: ChainId, mk: BeltMk): void {
-  pendingProduct = null;
   selection = {
     chainId,
     mk,
@@ -100,39 +97,12 @@ function showChain(chainId: ChainId, mk: BeltMk): void {
   renderSummary(summary, plant);
 }
 
-function promptForChain(productId: ProductId, mk: BeltMk): void {
-  pendingProduct = productId;
-  selection = { ...selection, mk };
-  persist();
-  const product = PRODUCTS[productId];
-  title.textContent = product.name;
-  lede.textContent = "Same Cable recipe either way. Pick the wire that feeds it.";
-  document.title = `${product.name} — Satisfactory visualizer`;
-  syncProduct(productId);
-  renderRecipeChoices(productId, null);
-  setMk(mk);
-  view.clear();
-  summary.replaceChildren();
-  const p = document.createElement("p");
-  p.className = "stat";
-  p.textContent = "Choose a wire chain.";
-  summary.append(p);
-}
-
 function chooseProduct(productId: ProductId): void {
   const mk = selectedMk();
   const remembered = selection.byProduct[productId];
   const product = PRODUCTS[productId];
-  if (remembered && product.chains.includes(remembered)) {
-    showChain(remembered, mk);
-    return;
-  }
-  const fallback = standardChain(productId);
-  if (fallback) {
-    showChain(fallback, mk);
-    return;
-  }
-  promptForChain(productId, mk);
+  const chainId = remembered && product.chains.includes(remembered) ? remembered : standardChain(productId);
+  showChain(chainId, mk);
 }
 
 function syncControls(chainId: ChainId): void {
@@ -277,12 +247,7 @@ demo.addEventListener("click", () => {
 for (const input of document.querySelectorAll<HTMLInputElement>('input[name="mk"]')) {
   input.addEventListener("change", () => {
     if (!input.checked) return;
-    const mk = selectedMk();
-    if (pendingProduct) {
-      promptForChain(pendingProduct, mk);
-      return;
-    }
-    showChain(selection.chainId, mk);
+    showChain(selection.chainId, selectedMk());
   });
 }
 
