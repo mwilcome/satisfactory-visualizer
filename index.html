@@ -10,21 +10,28 @@
     <div id="viewport"></div>
     <aside id="panel">
       <p class="eyebrow">Satisfactory visualizer</p>
-      <h1 id="title">Cast Screws</h1>
-      <p class="lede" id="lede">
-        Cast Screws alternate. Iron ore arrives on a belt, smelters make ingots, constructors cast screws.
-      </p>
-      <button type="button" id="demo">Demo: Screws from Iron</button>
-      <fieldset>
-        <legend>Build</legend>
-        <div class="marks" id="products"></div>
-      </fieldset>
+      <h1 id="title">Screws</h1>
+      <p class="lede" id="lede">Cast Screws. Iron ingots in. The belt sets the rate.</p>
+      <div class="item-picker">
+        <label for="item-search">Item</label>
+        <input
+          id="item-search"
+          type="search"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-controls="item-list"
+          aria-expanded="false"
+          autocomplete="off"
+          placeholder="Search parts"
+        />
+        <ul id="item-list" role="listbox" hidden></ul>
+      </div>
       <fieldset id="recipe-field" hidden>
-        <legend id="recipe-legend">Recipe</legend>
-        <div class="marks col" id="recipes"></div>
+        <legend>Recipe</legend>
+        <div id="recipes"></div>
       </fieldset>
       <fieldset>
-        <legend>Belt mark</legend>
+        <legend>Belt</legend>
         <div class="marks">
           <label><input type="radio" name="mk" value="1" /> Mk1 · 60</label>
           <label><input type="radio" name="mk" value="2" /> Mk2 · 120</label>

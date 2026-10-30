@@ -1,3 +1,5 @@
+import { ITEM_LIST, RECIPE_LIST } from "./generated-catalog";
+
 /**
  * Satisfactory building and recipe data.
  * Recipe rates below were checked against satisfactory.wiki.gg on 2026-10-30
@@ -251,177 +253,27 @@ export interface Recipe {
   outputs: ItemStack[];
 }
 
-export const RECIPES = {
-  "iron-ingot": {
-    id: "iron-ingot",
-    name: "Iron Ingot",
-    alternate: false,
-    className: "Recipe_IngotIron_C",
-    buildingId: "smelter",
-    cycleSeconds: 2,
-    inputs: [{ itemId: "iron-ore", perCycle: 1, perMin: 30 }],
-    outputs: [{ itemId: "iron-ingot", perCycle: 1, perMin: 30 }],
-  },
-  "cast-screw": {
-    id: "cast-screw",
-    name: "Cast Screws",
-    alternate: true,
-    className: "Recipe_Alternate_Screw_C",
-    buildingId: "constructor",
-    cycleSeconds: 24,
-    inputs: [{ itemId: "iron-ingot", perCycle: 5, perMin: 12.5 }],
-    outputs: [{ itemId: "screw", perCycle: 20, perMin: 50 }],
-  },
-  // https://satisfactory.wiki.gg/wiki/Copper_Ingot — Smelter, 2 s.
-  // 1 Copper Ore (30/min) → 1 Copper Ingot (30/min).
-  "copper-ingot": {
-    id: "copper-ingot",
-    name: "Copper Ingot",
-    alternate: false,
-    className: "Recipe_IngotCopper_C",
-    buildingId: "smelter",
-    cycleSeconds: 2,
-    inputs: [{ itemId: "copper-ore", perCycle: 1, perMin: 30 }],
-    outputs: [{ itemId: "copper-ingot", perCycle: 1, perMin: 30 }],
-  },
-  // https://satisfactory.wiki.gg/wiki/Iron_Plate — Constructor, 6 s.
-  // 3 Iron Ingot (30/min) → 2 Iron Plate (20/min). Default recipe.
-  "iron-plate": {
-    id: "iron-plate",
-    name: "Iron Plate",
-    alternate: false,
-    className: "Recipe_IronPlate_C",
-    buildingId: "constructor",
-    cycleSeconds: 6,
-    inputs: [{ itemId: "iron-ingot", perCycle: 3, perMin: 30 }],
-    outputs: [{ itemId: "iron-plate", perCycle: 2, perMin: 20 }],
-  },
-  // https://satisfactory.wiki.gg/wiki/Iron_Rod — Constructor, 4 s.
-  // 1 Iron Ingot (15/min) → 1 Iron Rod (15/min). Default recipe.
-  "iron-rod": {
-    id: "iron-rod",
-    name: "Iron Rod",
-    alternate: false,
-    className: "Recipe_IronRod_C",
-    buildingId: "constructor",
-    cycleSeconds: 4,
-    inputs: [{ itemId: "iron-ingot", perCycle: 1, perMin: 15 }],
-    outputs: [{ itemId: "iron-rod", perCycle: 1, perMin: 15 }],
-  },
-  // https://satisfactory.wiki.gg/wiki/Screw — Constructor, 6 s.
-  // 1 Iron Rod (10/min) → 4 Screws (40/min). Default recipe (1.1 name: Screws).
-  screw: {
-    id: "screw",
-    name: "Screws",
-    alternate: false,
-    className: "Recipe_Screw_C",
-    buildingId: "constructor",
-    cycleSeconds: 6,
-    inputs: [{ itemId: "iron-rod", perCycle: 1, perMin: 10 }],
-    outputs: [{ itemId: "screw", perCycle: 4, perMin: 40 }],
-  },
-  // https://satisfactory.wiki.gg/wiki/Wire — Constructor, 4 s.
-  // 1 Copper Ingot (15/min) → 2 Wire (30/min). Default recipe.
-  wire: {
-    id: "wire",
-    name: "Wire",
-    alternate: false,
-    className: "Recipe_Wire_C",
-    buildingId: "constructor",
-    cycleSeconds: 4,
-    inputs: [{ itemId: "copper-ingot", perCycle: 1, perMin: 15 }],
-    outputs: [{ itemId: "wire", perCycle: 2, perMin: 30 }],
-  },
-  // https://satisfactory.wiki.gg/wiki/Wire — Iron Wire alternate. Constructor, 24 s.
-  // 5 Iron Ingot (12.5/min) → 9 Wire (22.5/min).
-  // Class Recipe_Alternate_Wire_1_C matches those rates (not Wire_2).
-  "iron-wire": {
-    id: "iron-wire",
-    name: "Iron Wire",
-    alternate: true,
-    className: "Recipe_Alternate_Wire_1_C",
-    buildingId: "constructor",
-    cycleSeconds: 24,
-    inputs: [{ itemId: "iron-ingot", perCycle: 5, perMin: 12.5 }],
-    outputs: [{ itemId: "wire", perCycle: 9, perMin: 22.5 }],
-  },
-  // https://satisfactory.wiki.gg/wiki/Cable — Constructor, 2 s.
-  // 2 Wire (60/min) → 1 Cable (30/min). Default recipe.
-  cable: {
-    id: "cable",
-    name: "Cable",
-    alternate: false,
-    className: "Recipe_Cable_C",
-    buildingId: "constructor",
-    cycleSeconds: 2,
-    inputs: [{ itemId: "wire", perCycle: 2, perMin: 60 }],
-    outputs: [{ itemId: "cable", perCycle: 1, perMin: 30 }],
-  },
-  // https://satisfactory.wiki.gg/wiki/Steel_Ingot — Foundry, 4 s.
-  // 3 Iron Ore (45/min) + 3 Coal (45/min) → 3 Steel Ingot (45/min).
-  "steel-ingot": {
-    id: "steel-ingot",
-    name: "Steel Ingot",
-    alternate: false,
-    className: "Recipe_IngotSteel_C",
-    buildingId: "foundry",
-    cycleSeconds: 4,
-    inputs: [
-      { itemId: "iron-ore", perCycle: 3, perMin: 45 },
-      { itemId: "coal", perCycle: 3, perMin: 45 },
-    ],
-    outputs: [{ itemId: "steel-ingot", perCycle: 3, perMin: 45 }],
-  },
-  // https://satisfactory.wiki.gg/wiki/Iron_Ingot — Iron Alloy Ingot. Foundry, 12 s.
-  // 8 Iron Ore (40/min) + 2 Copper Ore (10/min) → 15 Iron Ingot (75/min).
-  "iron-alloy-ingot": {
-    id: "iron-alloy-ingot",
-    name: "Iron Alloy Ingot",
-    alternate: true,
-    className: "Recipe_Alternate_IngotIron_C",
-    buildingId: "foundry",
-    cycleSeconds: 12,
-    inputs: [
-      { itemId: "iron-ore", perCycle: 8, perMin: 40 },
-      { itemId: "copper-ore", perCycle: 2, perMin: 10 },
-    ],
-    outputs: [{ itemId: "iron-ingot", perCycle: 15, perMin: 75 }],
-  },
-  // https://satisfactory.wiki.gg/wiki/Reinforced_Iron_Plate — Assembler, 12 s.
-  // 6 Iron Plate (30/min) + 12 Screws (60/min) → 1 Reinforced Iron Plate (5/min).
-  "reinforced-iron-plate": {
-    id: "reinforced-iron-plate",
-    name: "Reinforced Iron Plate",
-    alternate: false,
-    className: "Recipe_IronPlateReinforced_C",
-    buildingId: "assembler",
-    cycleSeconds: 12,
-    inputs: [
-      { itemId: "iron-plate", perCycle: 6, perMin: 30 },
-      { itemId: "screw", perCycle: 12, perMin: 60 },
-    ],
-    outputs: [{ itemId: "reinforced-iron-plate", perCycle: 1, perMin: 5 }],
-  },
-} as const satisfies Record<string, Recipe>;
+export const ITEMS: Record<string, { id: string; name: string; raw: boolean; fluid: boolean }> =
+  Object.fromEntries(ITEM_LIST.map((item) => [item.id, item]));
 
-export type RecipeId = keyof typeof RECIPES;
+export type ItemId = string;
 
-export const ITEMS = {
-  "iron-ore": { id: "iron-ore", name: "Iron Ore" },
-  "iron-ingot": { id: "iron-ingot", name: "Iron Ingot" },
-  "iron-plate": { id: "iron-plate", name: "Iron Plate" },
-  "iron-rod": { id: "iron-rod", name: "Iron Rod" },
-  screw: { id: "screw", name: "Screws" },
-  "copper-ore": { id: "copper-ore", name: "Copper Ore" },
-  "copper-ingot": { id: "copper-ingot", name: "Copper Ingot" },
-  wire: { id: "wire", name: "Wire" },
-  cable: { id: "cable", name: "Cable" },
-  coal: { id: "coal", name: "Coal" },
-  "steel-ingot": { id: "steel-ingot", name: "Steel Ingot" },
-  "reinforced-iron-plate": { id: "reinforced-iron-plate", name: "Reinforced Iron Plate" },
-} as const;
+export const RECIPES: Record<string, Recipe> = Object.fromEntries(
+  RECIPE_LIST.map((recipe) => [recipe.id, recipe]),
+);
 
-export type ItemId = keyof typeof ITEMS;
+export type RecipeId = string;
+
+/** Parts you can aim the factory at. Raw ores and fluids stay inputs, not targets. */
+export function targetItems(): { id: string; name: string; raw: boolean; fluid: boolean }[] {
+  const made = new Set<string>();
+  for (const recipe of Object.values(RECIPES)) {
+    for (const output of recipe.outputs) made.add(output.itemId);
+  }
+  return ITEM_LIST.filter((item) => made.has(item.id) && !item.fluid).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+}
 
 /** How many whole machines of this recipe one belt mark can feed and empty. */
 export function machinesPerBelt(recipe: Recipe, perMin: number): number {

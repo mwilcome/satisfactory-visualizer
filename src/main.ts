@@ -1,52 +1,34 @@
 import { BUILDINGS, ITEMS, RECIPES, isBeltMk, type BeltMk, type ItemId } from "./data/catalog";
-import {
-  CHAINS,
-  PRODUCT_ORDER,
-  PRODUCTS,
-  productOf,
-  type ChainId,
-  type ProductId,
-} from "./data/chains";
 import { layoutIssues } from "./layout/invariants";
 import { buildChainPlant } from "./layout/plant";
 import type { Plant } from "./layout/types";
 import { FactoryView } from "./render/view";
-import { SURPLUS_EPSILON, solveChain, type StagePlan } from "./solve/chain";
-import { STORAGE_KEY, chainForProduct, parseSelection, serializeSelection } from "./ui/selection";
+import { SURPLUS_EPSILON, type StagePlan } from "./solve/chain";
+import { canLayOut, recipeChoices, selectableItems, solveTarget, standardRecipe } from "./solve/target";
+import { STORAGE_KEY, parseSelection, serializeSelection, type Selection } from "./ui/selection";
 
 const viewportEl = document.querySelector<HTMLElement>("#viewport");
 const summaryEl = document.querySelector<HTMLElement>("#summary");
-const demoEl = document.querySelector<HTMLButtonElement>("#demo");
 const titleEl = document.querySelector<HTMLElement>("#title");
 const ledeEl = document.querySelector<HTMLElement>("#lede");
-const productsEl = document.querySelector<HTMLElement>("#products");
+const searchEl = document.querySelector<HTMLInputElement>("#item-search");
+const listEl = document.querySelector<HTMLUListElement>("#item-list");
 const recipeFieldEl = document.querySelector<HTMLElement>("#recipe-field");
-const recipeLegendEl = document.querySelector<HTMLElement>("#recipe-legend");
 const recipesEl = document.querySelector<HTMLElement>("#recipes");
 
-if (
-  !viewportEl ||
-  !summaryEl ||
-  !demoEl ||
-  !titleEl ||
-  !ledeEl ||
-  !productsEl ||
-  !recipeFieldEl ||
-  !recipeLegendEl ||
-  !recipesEl
-) {
+if (!viewportEl || !summaryEl || !titleEl || !ledeEl || !searchEl || !listEl || !recipeFieldEl || !recipesEl) {
   throw new Error("App shell is missing.");
 }
 
 const viewport: HTMLElement = viewportEl;
 const summary: HTMLElement = summaryEl;
-const demo: HTMLButtonElement = demoEl;
 const title: HTMLElement = titleEl;
 const lede: HTMLElement = ledeEl;
-const products: HTMLElement = productsEl;
+const search: HTMLInputElement = searchEl;
+const itemList: HTMLUListElement = listEl;
 const recipeField: HTMLElement = recipeFieldEl;
-const recipeLegend: HTMLElement = recipeLegendEl;
 const recipesHost: HTMLElement = recipesEl;
+const targets = selectableItems();
 const view = new FactoryView(viewport);
 
 let selection = parseSelection(localStorage.getItem(STORAGE_KEY));
@@ -66,20 +48,21 @@ function setMk(mk: BeltMk): void {
   if (radio) radio.checked = true;
 }
 
-function showChain(chainId: ChainId, mk: BeltMk): void {
-  selection = {
-    chainId,
-    mk,
-    byProduct: { ...selection.byProduct, [productOf(chainId)]: chainId },
-  };
+function showItem(next: Selection): void {
+  selection = next;
   persist();
-  syncControls(chainId);
-  const chain = CHAINS[chainId];
-  title.textContent = chain.title;
-  lede.textContent = chain.lede;
-  document.title = `${chain.title} — Satisfactory visualizer`;
+  const item = ITEMS[selection.itemId];
+  const picked = selection.recipes[selection.itemId];
+  const goal = (picked && RECIPES[picked]) || standardRecipe(selection.itemId);
+  title.textContent = item?.name ?? selection.itemId;
+  const inputs = goal?.inputs.map((stack) => itemName(stack.itemId)).join(" + ") ?? "";
+  lede.textContent = goal ? `${goal.name}. ${inputs} in. The belt sets the rate.` : "Search for a part.";
+  document.title = `${title.textContent} — Satisfactory visualizer`;
+  search.value = item?.name ?? "";
+  renderRecipeChoices();
+  setMk(selection.mk);
 
-  const plan = solveChain(chainId, mk);
+  const plan = solveTarget(selection.itemId, selection.mk, selection.recipes);
   if (plan.blockedReason) {
     view.clear();
     renderBlocked(summary, plan.blockedReason);
@@ -96,59 +79,86 @@ function showChain(chainId: ChainId, mk: BeltMk): void {
   renderSummary(summary, plant);
 }
 
-function chooseProduct(productId: ProductId): void {
-  showChain(chainForProduct(productId, selection.byProduct), selectedMk());
-}
-
-function syncControls(chainId: ChainId): void {
-  const productId = productOf(chainId);
-  syncProduct(productId);
-  renderRecipeChoices(productId, chainId);
-  setMk(selection.mk);
-}
-
-function syncProduct(productId: ProductId): void {
-  const radio = document.querySelector<HTMLInputElement>(`input[name="product"][value="${productId}"]`);
-  if (radio) radio.checked = true;
-}
-
-function renderRecipeChoices(productId: ProductId, selected: ChainId | null): void {
-  const product = PRODUCTS[productId];
+function renderRecipeChoices(): void {
+  const groups = recipeChoices(selection.itemId, selection.recipes);
   recipesHost.replaceChildren();
-  if (product.chains.length < 2) {
-    recipeField.hidden = true;
-    return;
+  for (const group of groups) {
+    const block = document.createElement("div");
+    block.className = "recipe-group";
+    const heading = document.createElement("p");
+    heading.textContent = group.itemName;
+    const marks = document.createElement("div");
+    marks.className = "marks col";
+    marks.setAttribute("role", "radiogroup");
+    marks.setAttribute("aria-label", group.itemName);
+    const options = group.options.filter(
+      (option) =>
+        option.id === group.selectedId ||
+        canLayOut(selection.itemId, { ...selection.recipes, [group.itemId]: option.id }),
+    );
+    if (options.length < 2) continue;
+    for (const option of options) {
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = `recipe-${group.itemId}`;
+      input.value = option.id;
+      input.checked = option.id === group.selectedId;
+      input.addEventListener("change", () => {
+        if (!input.checked) return;
+        showItem({
+          ...selection,
+          recipes: { ...selection.recipes, [group.itemId]: option.id },
+        });
+      });
+      const label = document.createElement("label");
+      label.append(input, document.createTextNode(option.alternate ? `${option.name} (alternate)` : option.name));
+      marks.append(label);
+    }
+    block.append(heading, marks);
+    recipesHost.append(block);
   }
-  recipeField.hidden = false;
-  recipeLegend.textContent = product.legend;
-  for (const chainId of product.chains) {
-    const input = document.createElement("input");
-    input.type = "radio";
-    input.name = "recipe";
-    input.value = chainId;
-    input.checked = chainId === selected;
-    input.addEventListener("change", () => {
-      if (input.checked) showChain(chainId, selectedMk());
-    });
-    const label = document.createElement("label");
-    label.append(input, document.createTextNode(CHAINS[chainId].choiceLabel));
-    recipesHost.append(label);
-  }
+  recipeField.hidden = recipesHost.childElementCount === 0;
 }
 
-function renderProducts(): void {
-  for (const productId of PRODUCT_ORDER) {
-    const product = PRODUCTS[productId];
-    const input = document.createElement("input");
-    input.type = "radio";
-    input.name = "product";
-    input.value = productId;
-    input.addEventListener("change", () => {
-      if (input.checked) chooseProduct(productId);
+let activeOption = -1;
+
+function openList(query: string): void {
+  const needle = query.trim().toLowerCase();
+  const matches = targets.filter((item) => item.name.toLowerCase().includes(needle)).slice(0, 80);
+  itemList.replaceChildren();
+  activeOption = -1;
+  for (const [index, item] of matches.entries()) {
+    const option = document.createElement("li");
+    option.id = `item-opt-${index}`;
+    option.setAttribute("role", "option");
+    option.textContent = item.name;
+    option.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      chooseItem(item.id);
     });
-    const label = document.createElement("label");
-    label.append(input, document.createTextNode(product.name));
-    products.append(label);
+    itemList.append(option);
+  }
+  const open = matches.length > 0;
+  itemList.hidden = !open;
+  search.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+function chooseItem(itemId: string): void {
+  itemList.hidden = true;
+  search.setAttribute("aria-expanded", "false");
+  showItem({ itemId, mk: selectedMk(), recipes: { ...selection.recipes } });
+}
+
+function moveActive(delta: number): void {
+  const options = [...itemList.querySelectorAll<HTMLElement>('[role="option"]')];
+  if (options.length === 0) return;
+  activeOption = (activeOption + delta + options.length) % options.length;
+  for (const [index, option] of options.entries()) {
+    option.setAttribute("aria-selected", index === activeOption ? "true" : "false");
+    if (index === activeOption) {
+      search.setAttribute("aria-activedescendant", option.id);
+      option.scrollIntoView({ block: "nearest" });
+    }
   }
 }
 
@@ -260,16 +270,41 @@ function trim(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
-renderProducts();
-demo.addEventListener("click", () => {
-  showChain("cast-screw", 3);
+search.addEventListener("focus", () => openList(search.value));
+search.addEventListener("input", () => openList(search.value));
+search.addEventListener("keydown", (event) => {
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    if (itemList.hidden) openList(search.value);
+    moveActive(1);
+  } else if (event.key === "ArrowUp") {
+    event.preventDefault();
+    moveActive(-1);
+  } else if (event.key === "Enter") {
+    const selectedOption = itemList.querySelector<HTMLElement>('[aria-selected="true"]');
+    const name = selectedOption?.textContent;
+    const item = targets.find((entry) => entry.name === name);
+    if (item) {
+      event.preventDefault();
+      chooseItem(item.id);
+    }
+  } else if (event.key === "Escape") {
+    itemList.hidden = true;
+    search.setAttribute("aria-expanded", "false");
+  }
+});
+search.addEventListener("blur", () => {
+  itemList.hidden = true;
+  search.setAttribute("aria-expanded", "false");
+  const item = ITEMS[selection.itemId];
+  if (item) search.value = item.name;
 });
 
 for (const input of document.querySelectorAll<HTMLInputElement>('input[name="mk"]')) {
   input.addEventListener("change", () => {
     if (!input.checked) return;
-    showChain(selection.chainId, selectedMk());
+    showItem({ ...selection, mk: selectedMk() });
   });
 }
 
-showChain(selection.chainId, selection.mk);
+showItem(selection);

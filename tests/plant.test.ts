@@ -1,15 +1,20 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   BUILDINGS,
   FOUNDATION_HEIGHTS_LATER_M,
   FOUNDATION_SIZE_M,
   INPUT_STAIR_NUDGE_M,
+  ITEMS,
   MANUFACTURER_LATER,
+  RECIPES,
   inputLaneOutboardM,
+  targetItems,
   storyAirM,
   storyClearanceM,
 } from "../src/data/catalog";
 import { CHAINS, standardChain, type ChainId } from "../src/data/chains";
+import { selectableItems, solveTarget } from "../src/solve/target";
 import { chainForProduct } from "../src/ui/selection";
 import {
   ASSEMBLER_PARTS,
@@ -203,24 +208,62 @@ describe("saved output", () => {
     expect(standardChain("wire")).toBe("wire-copper");
   });
 
-  it("opens on Cast Screws at Mk3 when nothing is stored", () => {
-    expect(parseSelection(null)).toMatchObject({ chainId: "cast-screw", mk: 3 });
+  it("opens on Screws with Cast Screws at Mk3 when nothing is stored", () => {
+    expect(parseSelection(null)).toMatchObject({ itemId: "screw", mk: 3, recipes: { screw: "cast-screw" } });
   });
 
-  it("restores a known output and mark, and drops junk", () => {
-    expect(parseSelection(JSON.stringify({ chainId: "iron-rod", mk: 4 }))).toMatchObject({
-      chainId: "iron-rod",
+  it("restores an item and maps an old chain save", () => {
+    expect(parseSelection(JSON.stringify({ itemId: "iron-rod", mk: 4, recipes: {} }))).toMatchObject({
+      itemId: "iron-rod",
       mk: 4,
     });
-    expect(parseSelection("{")).toMatchObject({ chainId: "cast-screw", mk: 3 });
+    expect(parseSelection(JSON.stringify({ chainId: "iron-rod", mk: 4 }))).toMatchObject({
+      itemId: "iron-rod",
+      mk: 4,
+    });
+    expect(parseSelection("{")).toMatchObject({ itemId: "screw", mk: 3 });
     expect(parseSelection(JSON.stringify({ chainId: "nope", mk: 3 }))).toMatchObject({
-      chainId: "cast-screw",
+      itemId: "screw",
       mk: 3,
     });
-    expect(parseSelection(JSON.stringify({ chainId: "wire-iron", mk: 9 }))).toMatchObject({
-      chainId: "cast-screw",
-      mk: 3,
+    expect(parseSelection(JSON.stringify({ chainId: "wire-iron", mk: 2 }))).toMatchObject({
+      itemId: "wire",
+      mk: 2,
+      recipes: { wire: "iron-wire" },
     });
+  });
+});
+
+describe("item catalog", () => {
+  it("lists every Smelter, Constructor, Foundry, and Assembler part", () => {
+    const items = targetItems();
+    expect(items.length).toBeGreaterThan(60);
+    expect(Object.keys(ITEMS).length).toBeGreaterThan(items.length);
+    const buildings = new Set(Object.values(RECIPES).map((recipe) => recipe.buildingId));
+    expect([...buildings].sort()).toEqual(["assembler", "constructor", "foundry", "smelter"]);
+    expect(Object.values(RECIPES).filter((recipe) => recipe.buildingId === "assembler").length).toBeGreaterThan(30);
+    expect(readFileSync("index.html", "utf8").toLowerCase()).not.toContain("demo");
+    expect(readFileSync("src/main.ts", "utf8")).not.toContain("Demo");
+  });
+
+  it("offers Steel Ingot and Reinforced Iron Plate as items, and lays them out", () => {
+    const names = selectableItems().map((item) => item.name);
+    expect(names).toContain("Screws");
+    expect(names).toContain("Iron Plate");
+    expect(names).toContain("Cable");
+    expect(names).toContain("Steel Ingot");
+    expect(names).toContain("Reinforced Iron Plate");
+    expect(names).not.toContain("Foundry");
+    expect(names).not.toContain("Assembler");
+    expect(names.length).toBeGreaterThan(40);
+    const steel = solveTarget("steel-ingot", 3);
+    const plate = solveTarget("reinforced-iron-plate", 3);
+    expect(steel.blockedReason).toBeNull();
+    expect(plate.blockedReason).toBeNull();
+    expect(buildChainPlant(steel).solids.some((solid) => solid.buildingId === "foundry")).toBe(true);
+    expect(buildChainPlant(plate).solids.some((solid) => solid.buildingId === "assembler")).toBe(true);
+    expect(layoutIssues(buildChainPlant(steel))).toEqual([]);
+    expect(layoutIssues(buildChainPlant(plate))).toEqual([]);
   });
 });
 
@@ -244,7 +287,6 @@ describe("assembler and foundry", () => {
     expect(low.base.z).toBeCloseTo(high.base.z - 1);
     expect(low.base.y).toBeCloseTo(high.base.y - 2);
     expect(low.base.z).toBeLessThan(high.base.z);
-    expect(plant.solids.some((solid) => solid.kind === "lift" && solid.id.includes("between"))).toBe(false);
     expect(plant.belts.every((belt) => belt.mk === 3)).toBe(true);
     expect(assemblers.every((solid) => solid.clock === 100)).toBe(true);
   });

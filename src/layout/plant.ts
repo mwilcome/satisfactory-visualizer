@@ -15,7 +15,7 @@ import {
   type ItemId,
 } from "../data/catalog";
 import { INDUSTRIAL_PORT_ENTRY, INDUSTRIAL_PORT_Y } from "../data/parts";
-import { CHAINS, isLinearWiring, wiredStages, type ChainId, type InputSource } from "../data/chains";
+import { isLinearWiring, type ChainId, type InputSource } from "../data/chains";
 import { SURPLUS_EPSILON, solveChain, type ChainPlan, type StagePlan } from "../solve/chain";
 import type { Belt, Floor, Plant, PlantLabel, Ramp, Solid, Vec3, WalkCorridor } from "./types";
 
@@ -101,14 +101,15 @@ export function buildChainPlant(plan: ChainPlan): Plant {
   }
 
   const clearance = storyClearanceM("production");
-  const wired = wiredStages(CHAINS[plan.chainId]);
+  const wired = plan.stages.map((stage) => ({
+    id: stage.stageId,
+    recipeId: stage.recipeId,
+    from: stage.inputFrom,
+  }));
   const rows = plan.stages.map((stage, index) => {
     const recipe = RECIPES[stage.recipeId];
     const building = BUILDINGS[recipe.buildingId];
-    const wire = wired[index];
-    if (!wire || wire.id !== stage.stageId) {
-      throw new Error("Stage wiring does not match the plan.");
-    }
+    if (!building) throw new Error(`${stage.recipeId} is not laid out.`);
     const floor: Floor = {
       id: stage.stageId,
       z: clearance * index,

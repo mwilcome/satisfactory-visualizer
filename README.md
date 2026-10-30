@@ -13,9 +13,7 @@ npm run dev
 
 ## Happy path
 
-Open the app. The first visit shows a Mk3 Cast Screws plant — zero clicks. After that, the page restores the last output and belt mark.
-
-**Demo: Screws from Iron** jumps back to Cast Screws at Mk3 (250 screws/min). The belt-mark control rescales whichever output is selected. There is no separate rate field. Cast Screws, as a reference:
+Open the app. The first visit shows Screws at Mk3 using Cast Screws. Search any Smelter, Constructor, Foundry, or Assembler part, pick a recipe when there is an alternate, and set the belt. The belt mark is the rate. Machines follow the recipe. Cast Screws, as a reference:
 
 | Mark | Belt | Constructors | Smelters | Screws |
 | --- | --- | --- | --- | --- |
@@ -28,7 +26,7 @@ Every line uses the mark you picked. A manifold is never a mix of marks. On Cast
 
 ## Recipes
 
-Checked against satisfactory.wiki.gg at 100% clock. The picker is a build, not a parts catalog. Smelter and constructor chains are still there. Assembler and Foundry are machine builds: choose the machine, then which inputs join. Oil, pipes, and closed loops are the next bound and are not in this picker.
+Checked against satisfactory.wiki.gg at 100% clock. The item list is every part made by a Smelter, Constructor, Foundry, or Assembler. Assembler and Foundry show up when a recipe uses them. Oil, pipes, and other buildings are not in this set.
 
 - **Iron Ingot** — Smelter, 2 s. 1 iron ore (30/min) → 1 iron ingot (30/min).
 - **Copper Ingot** — Smelter, 2 s. 1 copper ore (30/min) → 1 copper ingot (30/min).

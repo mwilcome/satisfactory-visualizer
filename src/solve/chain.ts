@@ -24,7 +24,8 @@ export interface StagePlan {
 }
 
 export interface ChainPlan {
-  chainId: ChainId;
+  /** Fixed chain id, or the goal recipe id when the plan was built from an item. */
+  chainId: string;
   beltMk: BeltMk;
   beltPerMin: number;
   goalItemId: string;
@@ -50,8 +51,19 @@ interface Counted {
  */
 export function solveChain(chainId: ChainId, beltMk: BeltMk): ChainPlan {
   const chain = CHAINS[chainId];
-  const belt = beltByMk(beltMk);
   const wired = wiredStages(chain);
+  const goal = wired[wired.length - 1];
+  return solveWired(wired, beltMk, RECIPES[goal?.recipeId ?? ""]?.outputs[0]?.itemId ?? "", chainId);
+}
+
+/** Rates for a wired recipe graph. Clocks stay at 100%. */
+export function solveWired(
+  wired: WiredStage[],
+  beltMk: BeltMk,
+  goalItemId: string,
+  chainId: string,
+): ChainPlan {
+  const belt = beltByMk(beltMk);
   const stages = wired.map((stage) => ({ ...stage, recipe: RECIPES[stage.recipeId] }));
   const last = stages.length - 1;
   const goal = stages[last];
@@ -65,7 +77,7 @@ export function solveChain(chainId: ChainId, beltMk: BeltMk): ChainPlan {
     chainId,
     beltMk,
     beltPerMin: belt.perMin,
-    goalItemId: goalOutput.itemId,
+    goalItemId: goalItemId || goalOutput.itemId,
     stages: [],
     limitNote: null,
     blockedReason: null,
