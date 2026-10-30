@@ -90,6 +90,11 @@ export class FactoryView {
 
     this.beltRail = metal("#2c3136", 0.45, 0.55);
     this.beltTop = metal("#4a5158", 0.25, 0.62);
+    for (const beltMat of [this.beltRail, this.beltTop]) {
+      beltMat.polygonOffset = true;
+      beltMat.polygonOffsetFactor = -2;
+      beltMat.polygonOffsetUnits = -4;
+    }
     this.rampMat = metal("#9aa3ab", 0.55, 0.48);
     this.supportMat = metal("#5b534c", 0.4, 0.7);
     this.prototypes = new Map([

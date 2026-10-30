@@ -12,7 +12,7 @@ import {
   type BuildingId,
   type ItemId,
 } from "../data/catalog";
-import { INDUSTRIAL_PORT_Y } from "../data/parts";
+import { INDUSTRIAL_PORT_ENTRY, INDUSTRIAL_PORT_Y } from "../data/parts";
 import type { ChainId } from "../data/chains";
 import { SURPLUS_EPSILON, solveChain, type ChainPlan, type StagePlan } from "../solve/chain";
 import type { Belt, Floor, Plant, PlantLabel, Ramp, Solid, Vec3, WalkCorridor } from "./types";
@@ -610,7 +610,7 @@ function layStageLink(
     draft,
     `${upper.id}-to-buffer-port`,
     { x: faceIn - stand, y: portY, z: INPUT_Z },
-    { x: faceIn, y: portY, z: INPUT_Z },
+    { x: faceIn + INDUSTRIAL_PORT_ENTRY, y: portY, z: INPUT_Z },
     intoBank,
   );
   const outOfBank = {
@@ -622,7 +622,7 @@ function layStageLink(
   addBelt(
     draft,
     `${upper.id}-from-buffer-port`,
-    { x: faceOut, y: portY, z: INPUT_Z },
+    { x: faceOut - INDUSTRIAL_PORT_ENTRY, y: portY, z: INPUT_Z },
     { x: faceOut + stand, y: portY, z: INPUT_Z },
     outOfBank,
   );

@@ -190,17 +190,34 @@ export const AWESOME_SINK_PARTS: SolidPart[] = [
 
 /**
  * Industrial storage, length along x. Footprint 11 × 5 × 8.
- * End ports are centered on the ±x faces. Their center is 1.15 m above the base,
- * and the opening is wide enough for the 2 m belt.
+ * The end faces are a frame around an open port. The yellow body is inset
+ * so it does not share a plane with the belt end (that plane was the flickering square).
+ * Port center is 1.15 m above the base. The opening clears a 2 m belt.
  */
 export const INDUSTRIAL_PORT_Y = 1.15;
+/**
+ * Belt ends on the outer face. The port is an opening, so that end is not
+ * pressed against a coplanar wall. A positive value would enter the footprint box.
+ */
+export const INDUSTRIAL_PORT_ENTRY = 0;
+
+function storageEndFrame(sign: -1 | 1): SolidPart[] {
+  const x = sign * 5.44;
+  const slab: Pick<SolidPart, "size"> = { size: [0.12, 0, 0] };
+  return [
+    { size: [slab.size[0], 0.35, 5], center: [x, 0.175, 0], material: "splitter" },
+    { size: [slab.size[0], 6.05, 5], center: [x, 4.975, 0], material: "splitter" },
+    { size: [slab.size[0], 1.6, 1.3], center: [x, INDUSTRIAL_PORT_Y, -1.85], material: "splitter" },
+    { size: [slab.size[0], 1.6, 1.3], center: [x, INDUSTRIAL_PORT_Y, 1.85], material: "splitter" },
+  ];
+}
 
 export const BUFFER_PARTS: SolidPart[] = [
-  { size: [11, 7.2, 5], center: [0, 3.6, 0], material: "splitter" },
-  { size: [11, 0.45, 5], center: [0, 7.775, 0], material: "dark" },
+  { size: [10.6, 7.15, 5], center: [0, 3.575, 0], material: "splitter" },
+  { size: [10.6, 0.5, 5], center: [0, 7.75, 0], material: "dark" },
   { size: [10.2, 0.28, 4.55], center: [0, 2.15, 0], material: "dark" },
   { size: [10.2, 0.28, 4.55], center: [0, 4.35, 0], material: "dark" },
   { size: [10.2, 0.28, 4.55], center: [0, 6.2, 0], material: "dark" },
-  { size: [0.08, 1.5, 2.2], center: [-5.46, INDUSTRIAL_PORT_Y, 0], material: "port" },
-  { size: [0.08, 1.5, 2.2], center: [5.46, INDUSTRIAL_PORT_Y, 0], material: "port" },
+  ...storageEndFrame(-1),
+  ...storageEndFrame(1),
 ];

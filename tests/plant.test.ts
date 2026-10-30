@@ -13,7 +13,7 @@ import {
   STORAGE_CONTAINER_PARTS,
   footprintErrors,
 } from "../src/data/parts";
-import { INDUSTRIAL_PORT_Y } from "../src/data/parts";
+import { INDUSTRIAL_PORT_ENTRY, INDUSTRIAL_PORT_Y } from "../src/data/parts";
 import { layoutIssues } from "../src/layout/invariants";
 import { buildChainPlant, buildDemoPlant } from "../src/layout/plant";
 import { solveChain } from "../src/solve/chain";
@@ -108,10 +108,10 @@ describe("manifold layout", () => {
     const portIn = screws.belts.find((belt) => belt.id.endsWith("to-buffer-port"));
     const portOut = screws.belts.find((belt) => belt.id.endsWith("from-buffer-port"));
     if (!bank || !portIn || !portOut) throw new Error("bank ports missing");
-    expect(portIn.to.x).toBeCloseTo(bank.base.x - bank.size.x / 2);
+    expect(portIn.to.x).toBeCloseTo(bank.base.x - bank.size.x / 2 + INDUSTRIAL_PORT_ENTRY);
     expect(portIn.to.y).toBeCloseTo(bank.base.y + INDUSTRIAL_PORT_Y);
     expect(portIn.to.z).toBeCloseTo(bank.base.z);
-    expect(portOut.from.x).toBeCloseTo(bank.base.x + bank.size.x / 2);
+    expect(portOut.from.x).toBeCloseTo(bank.base.x + bank.size.x / 2 - INDUSTRIAL_PORT_ENTRY);
     expect(portOut.from.y).toBeCloseTo(bank.base.y + INDUSTRIAL_PORT_Y);
 
     const plate = buildChainPlant(solveChain("iron-plate", 3));
