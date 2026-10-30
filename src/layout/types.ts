@@ -1,5 +1,5 @@
 import type { BeltMk, BuildingId, StoryKind } from "../data/catalog";
-import type { ScrewPlan } from "../solve/screws";
+import type { ChainPlan } from "../solve/chain";
 
 /** Meters. x grows from the feed end toward the open end. y is up. z is lateral. */
 export interface Vec3 {
@@ -33,7 +33,8 @@ export interface Solid {
   recipeId?: string;
   clock?: 100;
   rowIndex?: number;
-  rowId?: "smelt" | "cast";
+  /** Manifold lane id. One row per production stage. */
+  rowId?: string;
 }
 
 export type BeltRole =
@@ -49,9 +50,9 @@ export type BeltRole =
 export interface Belt {
   id: string;
   mk: BeltMk;
-  itemId: "iron-ore" | "iron-ingot" | "screw";
+  itemId: string;
   role: BeltRole;
-  rowId?: "smelt" | "cast";
+  rowId?: string;
   from: Vec3;
   to: Vec3;
   /** 100% throughput this segment is sized for. */
@@ -88,10 +89,16 @@ export interface PlantLabel {
   position: Vec3;
 }
 
+/**
+ * Plant → Floor → Row (manifold lane).
+ * feedEndX is the apron side (logistics in). openEndX is the grow side.
+ * Each stage is one floor and one row. Looking from feed toward open,
+ * input is on -z and output is on +z.
+ */
 export interface Plant {
-  goalItemId: "screw";
+  goalItemId: string;
   dedicatedNodes: true;
-  plan: ScrewPlan;
+  plan: ChainPlan;
   feedEndX: number;
   floors: Floor[];
   solids: Solid[];
@@ -100,7 +107,7 @@ export interface Plant {
   walkCorridors: WalkCorridor[];
   labels: PlantLabel[];
   rows: {
-    id: "smelt" | "cast";
+    id: string;
     floorId: string;
     feedEndX: number;
     openEndX: number;

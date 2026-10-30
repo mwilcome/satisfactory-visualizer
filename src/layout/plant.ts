@@ -3,18 +3,24 @@ import {
   BUILDINGS,
   FOUNDATION_HEIGHT_M,
   FOUNDATION_SIZE_M,
+  ITEMS,
   LIFT,
+  RECIPES,
   WALKWAY,
   storyClearanceM,
   type BeltMk,
+  type BuildingId,
+  type ItemId,
 } from "../data/catalog";
-import { solveScrewsFromIron, type ScrewPlan } from "../solve/screws";
+import type { ChainId } from "../data/chains";
+import { solveChain, type ChainPlan, type StagePlan } from "../solve/chain";
 import type { Belt, Floor, Plant, PlantLabel, Ramp, Solid, Vec3, WalkCorridor } from "./types";
 
 /**
- * Doc-style manifold for Cast Screws.
+ * Doc-style manifold. One floor and one row per stage.
  *
- * Feed end (low x): ore comes in on a belt, ingots rise on a lift, screws leave,
+ * Feed end (low x): ore comes in on a belt, each stage's output rises on a
+ * lift into the next floor's buffer, the product leaves from the top floor,
  * and the player ramp sits here. The open end only has a grow stub.
  * Looking from feed toward open, input is on -z and output is on +z.
  * Every belt segment uses the selected mark. Clocks stay at 100%.
@@ -24,19 +30,15 @@ import type { Belt, Floor, Plant, PlantLabel, Ramp, Solid, Vec3, WalkCorridor } 
 
 const TILE = FOUNDATION_SIZE_M;
 const FEED_X = 0;
-const APRON_TILES = 4;
 const INPUT_Z = 0;
 const MACHINE_Z = 8;
 const PORT_PAD = 1;
 const MIN_WALK = 2;
 const SPLIT = BUILDINGS.splitter.width;
-const MERGER_Z = MACHINE_Z + BUILDINGS.smelter.length / 2 + PORT_PAD + SPLIT / 2;
-
-const LIFT_X = -28;
 const LIFT_Z = 25;
 const BUFFER_X = -12;
-const SCREW_EXIT_X = -12;
-const SCREW_EXIT_Z = 30;
+const EXIT_X = -12;
+const EXIT_Z = 30;
 
 interface Draft {
   mk: BeltMk;
@@ -49,63 +51,56 @@ interface Draft {
 }
 
 interface RowSpec {
-  id: "smelt" | "cast";
+  id: string;
   floor: Floor;
   count: number;
   strideTiles: number;
-  buildingId: "smelter" | "constructor";
-  recipeId: "iron-ingot" | "cast-screw";
+  buildingId: BuildingId;
+  recipeId: string;
   inputPerMin: number;
   outputPerMin: number;
-  inputItem: Belt["itemId"];
-  outputItem: Belt["itemId"];
+  inputItem: string;
+  outputItem: string;
+  length: number;
 }
 
-export function buildScrewPlant(plan: ScrewPlan): Plant {
-  const clearance = storyClearanceM("production");
-  const smeltFloor: Floor = {
-    id: "smelt",
-    z: 0,
-    foundationHeightM: FOUNDATION_HEIGHT_M,
-    heightClearanceM: clearance,
-    storyKind: "production",
-    wallCount: 3,
-  };
-  const castFloor: Floor = {
-    id: "cast",
-    z: clearance,
-    foundationHeightM: FOUNDATION_HEIGHT_M,
-    heightClearanceM: clearance,
-    storyKind: "production",
-    wallCount: 3,
-  };
+export function buildChainPlant(plan: ChainPlan): Plant {
+  if (plan.blockedReason || plan.stages.length < 2 || plan.stages.some((stage) => stage.machines < 1)) {
+    throw new Error(plan.blockedReason ?? "Chain cannot be laid out.");
+  }
 
-  const rows: RowSpec[] = [
-    {
-      id: "smelt",
-      floor: smeltFloor,
-      count: plan.smelters,
-      strideTiles: strideTilesFor(BUILDINGS.smelter.width),
-      buildingId: "smelter",
-      recipeId: "iron-ingot",
-      inputPerMin: 30,
-      outputPerMin: 30,
-      inputItem: "iron-ore",
-      outputItem: "iron-ingot",
-    },
-    {
-      id: "cast",
-      floor: castFloor,
-      count: plan.constructors,
-      strideTiles: strideTilesFor(BUILDINGS.constructor.width),
-      buildingId: "constructor",
-      recipeId: "cast-screw",
-      inputPerMin: 12.5,
-      outputPerMin: 50,
-      inputItem: "iron-ingot",
-      outputItem: "screw",
-    },
-  ];
+  const clearance = storyClearanceM("production");
+  const rows = plan.stages.map((stage, index) => {
+    const recipe = RECIPES[stage.recipeId];
+    const building = BUILDINGS[recipe.buildingId];
+    const floor: Floor = {
+      id: stage.recipeId,
+      z: clearance * index,
+      foundationHeightM: FOUNDATION_HEIGHT_M,
+      heightClearanceM: clearance,
+      storyKind: "production",
+      wallCount: 3,
+    };
+    return {
+      id: stage.recipeId,
+      floor,
+      count: stage.machines,
+      strideTiles: strideTilesFor(building.width),
+      buildingId: recipe.buildingId,
+      recipeId: stage.recipeId,
+      inputPerMin: recipe.inputs[0]?.perMin ?? 0,
+      outputPerMin: recipe.outputs[0]?.perMin ?? 0,
+      inputItem: recipe.inputs[0]?.itemId ?? "",
+      outputItem: recipe.outputs[0]?.itemId ?? "",
+      length: building.length,
+    } satisfies RowSpec;
+  });
+
+  const length = rows[0]?.length;
+  if (length === undefined || rows.some((row) => row.length !== length)) {
+    throw new Error("Mixed machine lengths need a layout rule that is not set.");
+  }
+  const mergerZ = MACHINE_Z + length / 2 + PORT_PAD + SPLIT / 2;
 
   const draft: Draft = {
     mk: plan.beltMk,
@@ -117,9 +112,10 @@ export function buildScrewPlant(plan: ScrewPlan): Plant {
     keys: new Set<string>(),
   };
 
+  const apron = apronTiles(rows.length);
   const rowMeta = rows.map((row) => {
     const openEndX = row.count * row.strideTiles * TILE;
-    layRow(draft, row, openEndX);
+    layRow(draft, row, openEndX, apron, mergerZ);
     return {
       id: row.id,
       floorId: row.floor.id,
@@ -129,24 +125,24 @@ export function buildScrewPlant(plan: ScrewPlan): Plant {
     };
   });
 
-  const castRow = rowMeta[1];
-  if (!castRow) throw new Error("constructor row missing");
-
-  layLogistics(draft, plan, smeltFloor, castFloor);
-  layRamp(draft, smeltFloor, castFloor);
-  laySupports(draft, smeltFloor, castFloor, castRow.openEndX);
+  layLogistics(draft, plan, rows, apron, mergerZ);
+  layRamp(draft, rows.map((row) => row.floor), apron);
+  const openEnd = Math.max(...rowMeta.map((row) => row.openEndX));
+  laySupports(draft, rows[0]?.floor, rows[rows.length - 1]?.floor, openEnd, apron, mergerZ);
 
   const air = clearance - FOUNDATION_HEIGHT_M;
-  if (BUILDINGS.smelter.height > air || BUILDINGS.constructor.height > air) {
-    throw new Error("Machine is taller than the production-story air gap.");
+  for (const row of rows) {
+    if (BUILDINGS[row.buildingId].height > air) {
+      throw new Error(`${row.buildingId} is taller than the production-story air gap.`);
+    }
   }
 
   return {
-    goalItemId: "screw",
+    goalItemId: plan.goalItemId,
     dedicatedNodes: true,
     plan,
     feedEndX: FEED_X,
-    floors: [smeltFloor, castFloor],
+    floors: rows.map((row) => row.floor),
     solids: draft.solids,
     belts: draft.belts,
     ramps: draft.ramps,
@@ -156,8 +152,33 @@ export function buildScrewPlant(plan: ScrewPlan): Plant {
   };
 }
 
+export function buildPlant(chainId: ChainId, beltMk: BeltMk): Plant | null {
+  const plan = solveChain(chainId, beltMk);
+  if (plan.blockedReason) return null;
+  return buildChainPlant(plan);
+}
+
 export function buildDemoPlant(beltMk: BeltMk): Plant {
-  return buildScrewPlant(solveScrewsFromIron(beltMk));
+  const plant = buildPlant("cast-screw", beltMk);
+  if (!plant) throw new Error("Cast Screws demo did not fit on this belt.");
+  return plant;
+}
+
+function apronTiles(floors: number): number {
+  const segments = (floors - 1) * (storyClearanceM("production") / WALKWAY.rise);
+  const rampTiles = Math.ceil((segments * WALKWAY.length) / TILE - 1e-9);
+  const farthestLiftTile = 4 + Math.max(0, floors - 2);
+  return Math.max(4, rampTiles, farthestLiftTile);
+}
+
+/**
+ * Lowest lift is farthest from the machines. Higher lifts step back toward
+ * the feed line so an incoming lift column does not cross the next output belt.
+ * One story stays at x = -28, matching the Cast Screws demo.
+ */
+function liftX(gap: number, gaps: number): number {
+  const ix = -(4 + (gaps - 1 - gap));
+  return ix * TILE + TILE / 2;
 }
 
 function strideTilesFor(machineWidth: number): number {
@@ -219,12 +240,12 @@ function addBelt(
   draft.belts.push({ id, from, to, mk: draft.mk, ...fields });
 }
 
-function layRow(draft: Draft, row: RowSpec, openEndX: number): void {
+function layRow(draft: Draft, row: RowSpec, openEndX: number, apron: number, mergerZ: number): void {
   const building = BUILDINGS[row.buildingId];
   const yWalk = walkY(row.floor);
   const yBelt = beltCenterY(row.floor);
   const stubIx = row.count * row.strideTiles;
-  fillPad(draft, row.floor, -APRON_TILES, stubIx, -1, 2);
+  fillPad(draft, row.floor, -apron, stubIx, -1, 2);
 
   const portInZ = MACHINE_Z - building.length / 2;
   const portOutZ = MACHINE_Z + building.length / 2;
@@ -258,7 +279,7 @@ function layRow(draft: Draft, row: RowSpec, openEndX: number): void {
       floorId: row.floor.id,
       rowId: row.id,
       rowIndex: index,
-      base: { x, y: yWalk, z: MERGER_Z },
+      base: { x, y: yWalk, z: mergerZ },
       size: { x: SPLIT, y: BUILDINGS.merger.height, z: SPLIT },
     });
 
@@ -273,7 +294,7 @@ function layRow(draft: Draft, row: RowSpec, openEndX: number): void {
       draft,
       `${row.id}-out-port-${index}`,
       { x, y: yBelt, z: portOutZ },
-      { x, y: yBelt, z: MERGER_Z - SPLIT / 2 },
+      { x, y: yBelt, z: mergerZ - SPLIT / 2 },
       { itemId: row.outputItem, role: "output-port", rowId: row.id, designPerMin: row.outputPerMin },
     );
 
@@ -295,8 +316,8 @@ function layRow(draft: Draft, row: RowSpec, openEndX: number): void {
       addBelt(
         draft,
         `${row.id}-out-run-${index}`,
-        { x: next - SPLIT / 2, y: yBelt, z: MERGER_Z },
-        { x: x + SPLIT / 2, y: yBelt, z: MERGER_Z },
+        { x: next - SPLIT / 2, y: yBelt, z: mergerZ },
+        { x: x + SPLIT / 2, y: yBelt, z: mergerZ },
         {
           itemId: row.outputItem,
           role: "output-manifold",
@@ -336,143 +357,155 @@ function layRow(draft: Draft, row: RowSpec, openEndX: number): void {
 
 function layLogistics(
   draft: Draft,
-  plan: ScrewPlan,
-  smelt: Floor,
-  cast: Floor,
+  plan: ChainPlan,
+  rows: RowSpec[],
+  apron: number,
+  mergerZ: number,
 ): void {
-  const y0 = beltCenterY(smelt);
-  const y1 = beltCenterY(cast);
+  const first = rows[0];
+  const last = rows[rows.length - 1];
+  if (!first || !last) return;
   const firstFace = TILE / 2 - SPLIT / 2;
   const storage = BUILDINGS.storageIndustrial;
-
-  addFoundation(draft, smelt, -APRON_TILES, 3);
-  addFoundation(draft, cast, -2, 3);
+  const y0 = beltCenterY(first.floor);
 
   addBelt(
     draft,
     "ore-in",
-    { x: -APRON_TILES * TILE, y: y0, z: INPUT_Z },
+    { x: -apron * TILE, y: y0, z: INPUT_Z },
     { x: firstFace, y: y0, z: INPUT_Z },
-    { itemId: "iron-ore", role: "ore-input", rowId: "smelt", designPerMin: plan.orePerMin },
+    {
+      itemId: first.inputItem,
+      role: "ore-input",
+      rowId: first.id,
+      designPerMin: plan.stages[0]?.inputPerMin ?? 0,
+    },
   );
+  draft.labels.push({
+    id: "label-ore",
+    text: `${itemName(first.inputItem)} in`,
+    position: { x: -apron * TILE + 2, y: walkY(first.floor) + 2.2, z: INPUT_Z },
+  });
+
+  for (let index = 0; index < rows.length - 1; index += 1) {
+    const lower = rows[index];
+    const upper = rows[index + 1];
+    const lowerStage = plan.stages[index];
+    const upperStage = plan.stages[index + 1];
+    if (!lower || !upper || !lowerStage || !upperStage) continue;
+    layStageLink(draft, lower, upper, lowerStage, upperStage, index, rows.length - 1, firstFace, mergerZ, storage);
+  }
+
+  const yTop = beltCenterY(last.floor);
+  const made = plan.stages[plan.stages.length - 1]?.outputPerMin ?? 0;
+  addBelt(
+    draft,
+    "product-apron",
+    { x: firstFace, y: yTop, z: mergerZ },
+    { x: EXIT_X, y: yTop, z: mergerZ },
+    { itemId: last.outputItem, role: "product-output", rowId: last.id, designPerMin: made },
+  );
+  addBelt(
+    draft,
+    "product-exit",
+    { x: EXIT_X, y: yTop, z: mergerZ },
+    { x: EXIT_X, y: yTop, z: EXIT_Z },
+    { itemId: last.outputItem, role: "product-output", rowId: last.id, designPerMin: made },
+  );
+  addFoundation(draft, last.floor, tileIndex(EXIT_X), tileIndex(EXIT_Z));
+  draft.labels.push({
+    id: "label-product",
+    text: `${itemName(last.outputItem)} out`,
+    position: { x: EXIT_X, y: walkY(last.floor) + 2.4, z: EXIT_Z },
+  });
+}
+
+function layStageLink(
+  draft: Draft,
+  lower: RowSpec,
+  upper: RowSpec,
+  lowerStage: StagePlan,
+  upperStage: StagePlan,
+  gap: number,
+  gaps: number,
+  firstFace: number,
+  mergerZ: number,
+  storage: { length: number; height: number; width: number },
+): void {
+  const yLower = beltCenterY(lower.floor);
+  const yUpper = beltCenterY(upper.floor);
+  const x = liftX(gap, gaps);
+  const item = lower.outputItem;
+
+  addFoundation(draft, lower.floor, tileIndex(x), tileIndex(LIFT_Z));
 
   addBelt(
     draft,
-    "ingot-apron",
-    { x: firstFace, y: y0, z: MERGER_Z },
-    { x: LIFT_X, y: y0, z: MERGER_Z },
-    {
-      itemId: "iron-ingot",
-      role: "stage-link",
-      rowId: "smelt",
-      designPerMin: plan.ingotsProducedPerMin,
-    },
+    `${lower.id}-to-lift-x`,
+    { x: firstFace, y: yLower, z: mergerZ },
+    { x, y: yLower, z: mergerZ },
+    { itemId: item, role: "stage-link", rowId: lower.id, designPerMin: lowerStage.outputPerMin },
   );
   addBelt(
     draft,
-    "ingot-to-lift",
-    { x: LIFT_X, y: y0, z: MERGER_Z },
-    { x: LIFT_X, y: y0, z: LIFT_Z - LIFT.length / 2 },
-    {
-      itemId: "iron-ingot",
-      role: "stage-link",
-      rowId: "smelt",
-      designPerMin: plan.ingotsProducedPerMin,
-    },
+    `${lower.id}-to-lift-z`,
+    { x, y: yLower, z: mergerZ },
+    { x, y: yLower, z: LIFT_Z - LIFT.length / 2 },
+    { itemId: item, role: "stage-link", rowId: lower.id, designPerMin: lowerStage.outputPerMin },
   );
 
-  const liftHeight = walkY(cast) + BELT.height - walkY(smelt);
+  const liftHeight = walkY(upper.floor) + BELT.height - walkY(lower.floor);
   draft.solids.push({
-    id: "ingot-lift",
+    id: `lift-${lower.id}`,
     kind: "lift",
-    floorId: smelt.id,
-    base: { x: LIFT_X, y: walkY(smelt), z: LIFT_Z },
+    floorId: lower.floor.id,
+    base: { x, y: walkY(lower.floor), z: LIFT_Z },
     size: { x: LIFT.width, y: liftHeight, z: LIFT.length },
   });
 
   draft.solids.push({
-    id: "ingot-buffer",
+    id: `buffer-${upper.id}`,
     kind: "buffer",
-    floorId: cast.id,
-    base: { x: BUFFER_X, y: walkY(cast), z: INPUT_Z },
+    floorId: upper.floor.id,
+    base: { x: BUFFER_X, y: walkY(upper.floor), z: INPUT_Z },
     size: { x: storage.length, y: storage.height, z: storage.width },
   });
 
   addBelt(
     draft,
-    "ingot-from-lift",
-    { x: LIFT_X, y: y1, z: LIFT_Z - LIFT.length / 2 },
-    { x: LIFT_X, y: y1, z: INPUT_Z },
-    {
-      itemId: "iron-ingot",
-      role: "stage-link",
-      rowId: "cast",
-      designPerMin: plan.ingotsProducedPerMin,
-    },
+    `${upper.id}-from-lift`,
+    { x, y: yUpper, z: LIFT_Z - LIFT.length / 2 },
+    { x, y: yUpper, z: INPUT_Z },
+    { itemId: item, role: "stage-link", rowId: upper.id, designPerMin: lowerStage.outputPerMin },
   );
   addBelt(
     draft,
-    "ingot-to-buffer",
-    { x: LIFT_X, y: y1, z: INPUT_Z },
-    { x: BUFFER_X - storage.length / 2, y: y1, z: INPUT_Z },
-    {
-      itemId: "iron-ingot",
-      role: "stage-link",
-      rowId: "cast",
-      designPerMin: plan.ingotsProducedPerMin,
-    },
+    `${upper.id}-to-buffer`,
+    { x, y: yUpper, z: INPUT_Z },
+    { x: BUFFER_X - storage.length / 2, y: yUpper, z: INPUT_Z },
+    { itemId: item, role: "stage-link", rowId: upper.id, designPerMin: lowerStage.outputPerMin },
   );
   addBelt(
     draft,
-    "ingot-to-manifold",
-    { x: BUFFER_X + storage.length / 2, y: y1, z: INPUT_Z },
-    { x: firstFace, y: y1, z: INPUT_Z },
-    {
-      itemId: "iron-ingot",
-      role: "input-manifold",
-      rowId: "cast",
-      designPerMin: plan.ingotsConsumedPerMin,
-    },
+    `${upper.id}-from-buffer`,
+    { x: BUFFER_X + storage.length / 2, y: yUpper, z: INPUT_Z },
+    { x: firstFace, y: yUpper, z: INPUT_Z },
+    { itemId: item, role: "input-manifold", rowId: upper.id, designPerMin: upperStage.inputPerMin },
   );
 
-  addBelt(
-    draft,
-    "screw-apron",
-    { x: firstFace, y: y1, z: MERGER_Z },
-    { x: SCREW_EXIT_X, y: y1, z: MERGER_Z },
-    { itemId: "screw", role: "product-output", rowId: "cast", designPerMin: plan.screwsPerMin },
-  );
-  addBelt(
-    draft,
-    "screw-exit",
-    { x: SCREW_EXIT_X, y: y1, z: MERGER_Z },
-    { x: SCREW_EXIT_X, y: y1, z: SCREW_EXIT_Z },
-    { itemId: "screw", role: "product-output", rowId: "cast", designPerMin: plan.screwsPerMin },
-  );
-
-  draft.labels.push(
-    {
-      id: "label-ore",
-      text: "Iron ore in",
-      position: { x: -APRON_TILES * TILE + 2, y: walkY(smelt) + 2.2, z: INPUT_Z },
-    },
-    {
-      id: "label-buffer",
-      text: "Ingot buffer",
-      position: { x: BUFFER_X, y: walkY(cast) + storage.height + 0.6, z: INPUT_Z },
-    },
-    {
-      id: "label-screws",
-      text: "Screws out",
-      position: { x: SCREW_EXIT_X, y: walkY(cast) + 2.4, z: SCREW_EXIT_Z },
-    },
-  );
+  draft.labels.push({
+    id: `label-buffer-${upper.id}`,
+    text: `${itemName(item)} buffer`,
+    position: { x: BUFFER_X, y: walkY(upper.floor) + storage.height + 0.6, z: INPUT_Z },
+  });
 }
 
-function layRamp(draft: Draft, lower: Floor, upper: Floor): void {
+function layRamp(draft: Draft, floors: Floor[], apron: number): void {
+  const lower = floors[0];
+  const upper = floors[floors.length - 1];
+  if (!lower || !upper) return;
   const z = -14;
-  fillPad(draft, lower, -APRON_TILES, -1, -2, -2);
-  fillPad(draft, upper, -APRON_TILES, -1, -2, -2);
+  for (const floor of floors) fillPad(draft, floor, -apron, -1, -2, -2);
 
   const segments = (walkY(upper) - walkY(lower)) / WALKWAY.rise;
   if (!Number.isInteger(segments)) {
@@ -499,11 +532,19 @@ function layRamp(draft: Draft, lower: Floor, upper: Floor): void {
   });
 }
 
-function laySupports(draft: Draft, lower: Floor, upper: Floor, castOpenEndX: number): void {
+function laySupports(
+  draft: Draft,
+  lower: Floor | undefined,
+  upper: Floor | undefined,
+  openEndX: number,
+  apron: number,
+  mergerZ: number,
+): void {
+  if (!lower || !upper) return;
   const top = upper.z;
-  const edgeZ = [-TILE, MERGER_Z + TILE];
-  const maxX = castOpenEndX + TILE;
-  for (let x = -APRON_TILES * TILE; x <= maxX + 1e-6; x += TILE * 2) {
+  const edgeZ = [-TILE, mergerZ + TILE];
+  const maxX = openEndX + TILE;
+  for (let x = -apron * TILE; x <= maxX + 1e-6; x += TILE * 2) {
     for (const z of edgeZ) {
       const onLower = draft.solids.some(
         (solid) =>
@@ -524,4 +565,17 @@ function laySupports(draft: Draft, lower: Floor, upper: Floor, castOpenEndX: num
       });
     }
   }
+}
+
+function tileIndex(coord: number): number {
+  return Math.floor(coord / TILE);
+}
+
+function itemName(itemId: string): string {
+  if (isItemId(itemId)) return ITEMS[itemId].name;
+  return itemId;
+}
+
+function isItemId(itemId: string): itemId is ItemId {
+  return Object.prototype.hasOwnProperty.call(ITEMS, itemId);
 }

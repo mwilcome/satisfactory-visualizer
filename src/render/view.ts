@@ -132,14 +132,12 @@ export class FactoryView {
     tick();
   }
 
+  clear(): void {
+    this.releasePlant();
+  }
+
   show(plant: Plant): void {
-    if (this.plant) {
-      this.plant.traverse((obj) => {
-        if (obj instanceof CSS2DObject) obj.element.remove();
-      });
-      this.scene.remove(this.plant);
-      disposeTree(this.plant);
-    }
+    this.releasePlant();
     const root = new THREE.Group();
     root.name = "plant";
     this.addFoundations(root, plant);
@@ -152,6 +150,16 @@ export class FactoryView {
     this.scene.add(root);
     this.plant = root;
     this.frame(root);
+  }
+
+  private releasePlant(): void {
+    if (!this.plant) return;
+    this.plant.traverse((obj) => {
+      if (obj instanceof CSS2DObject) obj.element.remove();
+    });
+    this.scene.remove(this.plant);
+    disposeTree(this.plant);
+    this.plant = null;
   }
 
   private resize(host: HTMLElement): void {

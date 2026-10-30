@@ -1,29 +1,48 @@
-import { BUILDINGS, FOUNDATION_HEIGHT_M, FOUNDATION_SIZE_M, LIFT } from "../data/catalog";
+import { BUILDINGS, FOUNDATION_HEIGHT_M, FOUNDATION_SIZE_M, LIFT, RECIPES } from "../data/catalog";
 import { beltAabb, overlaps, rampAabb, solidAabb } from "./aabb";
 import type { Aabb, Plant, Solid } from "./types";
 
 const TILE = FOUNDATION_SIZE_M;
 
-/** Layout rules for the v1 screw plant. Empty list means the plant is valid. */
+/** Layout rules for a doc manifold. Empty list means the plant is valid. */
 export function layoutIssues(plant: Plant): string[] {
   const issues: string[] = [];
   const { plan } = plant;
 
   if (!plant.dedicatedNodes) issues.push("ore input must be a dedicated belt, not a siphon");
-  if (plan.constructors < 1 || plan.smelters < 1) issues.push("need at least one smelter and constructor");
-  if (plan.screwsPerMin !== plan.constructors * 50) issues.push("screw total is not constructors × 50");
-  if (Math.abs(plan.ingotsConsumedPerMin - plan.constructors * 12.5) > 1e-6) {
-    issues.push("ingot demand is not constructors × 12.5");
+  if (plan.blockedReason) issues.push(plan.blockedReason);
+  if (plan.stages.length < 2) issues.push("need at least a smelting stage and a constructor stage");
+  if (plant.floors.length !== plan.stages.length || plant.rows.length !== plan.stages.length) {
+    issues.push("floors and rows do not match the chain");
   }
-  if (plan.ingotsProducedPerMin !== plan.smelters * 30) issues.push("ingot supply is not smelters × 30");
-  if (plan.orePerMin !== plan.smelters * 30) issues.push("ore input is not smelters × 30");
-  if (plan.ingotSurplusPerMin < -1e-6) issues.push("ingot surplus went negative");
-  if (plan.screwsPerMin > plan.beltPerMin + 1e-6) issues.push("screw rate exceeds the belt");
-  if (plan.ingotsProducedPerMin > plan.beltPerMin + 1e-6) issues.push("ingot rate exceeds the belt");
-  if (plan.orePerMin > plan.beltPerMin + 1e-6) issues.push("ore rate exceeds the belt");
 
-  if (plant.floors.length !== 2) issues.push("expected two floors");
-  const [lower, upper] = plant.floors;
+  for (let index = 0; index < plan.stages.length; index += 1) {
+    const stage = plan.stages[index];
+    if (!stage) continue;
+    const recipe = RECIPES[stage.recipeId];
+    const input = recipe.inputs[0];
+    const output = recipe.outputs[0];
+    if (!input || !output) {
+      issues.push(`${stage.recipeId} is missing a stack`);
+      continue;
+    }
+    if (stage.machines < 1) issues.push(`${stage.recipeId} has no machines`);
+    if (Math.abs(stage.outputPerMin - stage.machines * output.perMin) > 1e-6) {
+      issues.push(`${stage.recipeId} output is not machines × ${output.perMin}`);
+    }
+    if (Math.abs(stage.inputPerMin - stage.machines * input.perMin) > 1e-6) {
+      issues.push(`${stage.recipeId} input is not machines × ${input.perMin}`);
+    }
+    if (stage.outputPerMin > plan.beltPerMin + 1e-6) issues.push(`${stage.recipeId} output exceeds the belt`);
+    if (stage.inputPerMin > plan.beltPerMin + 1e-6) issues.push(`${stage.recipeId} input exceeds the belt`);
+    const next = plan.stages[index + 1];
+    if (next && stage.outputPerMin + 1e-6 < next.inputPerMin) {
+      issues.push(`${stage.recipeId} does not feed ${next.recipeId}`);
+    }
+  }
+
+  const lower = plant.floors[0];
+  const upper = plant.floors[plant.floors.length - 1];
   if (!lower || !upper) return issues;
   for (const floor of plant.floors) {
     if (floor.foundationHeightM !== 1) issues.push(`${floor.id} foundation is not 1 m`);
@@ -31,7 +50,11 @@ export function layoutIssues(plant: Plant): string[] {
       issues.push(`${floor.id} is not a 3-wall production story`);
     }
   }
-  if (upper.z - lower.z !== 12) issues.push("floor pitch is not 12 m");
+  for (let index = 1; index < plant.floors.length; index += 1) {
+    const below = plant.floors[index - 1];
+    const above = plant.floors[index];
+    if (below && above && above.z - below.z !== 12) issues.push("floor pitch is not 12 m");
+  }
 
   const marks = new Set(plant.belts.map((belt) => belt.mk));
   if (marks.size !== 1 || !marks.has(plan.beltMk)) issues.push("a line mixes belt marks");
@@ -78,7 +101,7 @@ export function layoutIssues(plant: Plant): string[] {
     if (splitters.length !== machines.length || mergers.length !== machines.length) {
       issues.push(`${row.id} is not one splitter and one merger per machine`);
     }
-    const expected = row.id === "smelt" ? plan.smelters : plan.constructors;
+    const expected = plan.stages.find((stage) => stage.recipeId === row.id)?.machines;
     if (machines.length !== expected) issues.push(`${row.id} does not match the belt-limited plan`);
 
     for (const machine of machines) {
@@ -161,7 +184,8 @@ export function layoutIssues(plant: Plant): string[] {
     if (Math.max(ramp.from.x, ramp.to.x) > plant.feedEndX + 1e-6) issues.push(`${ramp.id} leaves the feed end`);
     rise += climbed;
   }
-  if (Math.abs(rise - 12) > 1e-6) issues.push("ramp does not climb the full story");
+  const stories = Math.max(0, plant.floors.length - 1) * 12;
+  if (Math.abs(rise - stories) > 1e-6) issues.push("ramp does not climb the full story");
   for (const ramp of plant.ramps) {
     for (const belt of plant.belts) {
       if (overlaps(rampAabb(ramp), beltAabb(belt))) issues.push(`${ramp.id} blocks ${belt.id}`);
@@ -223,7 +247,7 @@ export function layoutIssues(plant: Plant): string[] {
     }
   }
 
-  if (plant.solids.some((solid) => solid.buildingId === "foundry")) issues.push("foundry was placed in the screw demo");
+  if (plant.solids.some((solid) => solid.buildingId === "foundry")) issues.push("foundry was placed");
   if (plant.belts.some((belt) => belt.mk !== plan.beltMk)) issues.push("belt mark drifted");
 
   return issues;

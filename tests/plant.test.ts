@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BUILDINGS, FOUNDATION_HEIGHTS_LATER_M, storyAirM, storyClearanceM } from "../src/data/catalog";
+import { CHAINS, type ChainId } from "../src/data/chains";
 import {
   BUFFER_PARTS,
   CONSTRUCTOR_PARTS,
@@ -9,8 +10,10 @@ import {
   footprintErrors,
 } from "../src/data/parts";
 import { layoutIssues } from "../src/layout/invariants";
-import { buildDemoPlant } from "../src/layout/plant";
+import { buildChainPlant, buildDemoPlant } from "../src/layout/plant";
+import { solveChain } from "../src/solve/chain";
 import { solveScrewsFromIron } from "../src/solve/screws";
+import { parseSelection } from "../src/ui/selection";
 
 describe("wiki footprints", () => {
   it("matches satisfactory.wiki.gg sizes", () => {
@@ -74,6 +77,71 @@ describe("manifold layout", () => {
       expect(plant.solids.some((solid) => solid.kind === "machine" && solid.buildingId === "smelter")).toBe(true);
       expect(plant.belts.every((belt) => belt.mk === mk)).toBe(true);
       expect(plant.solids.every((solid) => solid.kind !== "foundation" || solid.size.y === 1)).toBe(true);
+      expect(plant.floors).toHaveLength(2);
+      expect(plant.ramps).toHaveLength(6);
     });
   }
+});
+
+describe("other chains", () => {
+  const chains = Object.keys(CHAINS) as ChainId[];
+
+  for (const chainId of chains) {
+    for (const mk of [1, 2, 3, 4] as const) {
+      it(`lays out ${chainId} at Mk${mk} or reports the belt block`, () => {
+        const plan = solveChain(chainId, mk);
+        if (plan.blockedReason) {
+          expect(plan.stages).toEqual([]);
+          expect(() => buildChainPlant(plan)).toThrow();
+          return;
+        }
+        const plant = buildChainPlant(plan);
+        expect(layoutIssues(plant)).toEqual([]);
+        expect(plant.floors).toHaveLength(CHAINS[chainId].stages.length);
+        expect(plant.belts.every((belt) => belt.mk === mk)).toBe(true);
+        expect(plant.ramps.length).toBe((plant.floors.length - 1) * 6);
+      });
+    }
+  }
+
+  it("sizes iron plate, iron rod, rod screws, and both wire chains from the belt", () => {
+    expect(solveChain("iron-plate", 3).stages.map((stage) => stage.machines)).toEqual([9, 9]);
+    expect(solveChain("iron-rod", 1).stages.map((stage) => stage.outputPerMin)).toEqual([60, 60]);
+    expect(solveChain("screw-rod", 3).stages.map((stage) => stage.machines)).toEqual([2, 4, 6]);
+    expect(solveChain("wire-copper", 3).stages[1]?.outputPerMin).toBe(270);
+    expect(solveChain("wire-iron", 2).stages.map((stage) => stage.machines)).toEqual([3, 5]);
+    expect(solveChain("cable-copper", 4).stages.map((stage) => stage.machines)).toEqual([8, 16, 8]);
+  });
+
+  it("belt-limits Cable from Iron Wire and blocks Mk1", () => {
+    const blocked = solveChain("cable-iron", 1);
+    expect(blocked.blockedReason).toMatch(/60/);
+    expect(blocked.blockedReason).toMatch(/45/);
+    const mk2 = solveChain("cable-iron", 2);
+    expect(mk2.stages.map((stage) => stage.machines)).toEqual([2, 3, 1]);
+    expect(mk2.limitNote).toMatch(/belt-limited/);
+    expect(solveChain("cable-iron", 4).stages.map((stage) => stage.machines)).toEqual([8, 19, 7]);
+  });
+});
+
+describe("saved output", () => {
+  it("opens on Cast Screws at Mk3 when nothing is stored", () => {
+    expect(parseSelection(null)).toMatchObject({ chainId: "cast-screw", mk: 3 });
+  });
+
+  it("restores a known output and mark, and drops junk", () => {
+    expect(parseSelection(JSON.stringify({ chainId: "iron-rod", mk: 4 }))).toMatchObject({
+      chainId: "iron-rod",
+      mk: 4,
+    });
+    expect(parseSelection("{")).toMatchObject({ chainId: "cast-screw", mk: 3 });
+    expect(parseSelection(JSON.stringify({ chainId: "nope", mk: 3 }))).toMatchObject({
+      chainId: "cast-screw",
+      mk: 3,
+    });
+    expect(parseSelection(JSON.stringify({ chainId: "wire-iron", mk: 9 }))).toMatchObject({
+      chainId: "cast-screw",
+      mk: 3,
+    });
+  });
 });
