@@ -37,8 +37,17 @@ export function layoutIssues(plant: Plant): string[] {
     if (stage.outputPerMin > plan.beltPerMin + 1e-6) issues.push(`${stage.recipeId} output exceeds the belt`);
     if (stage.inputPerMin > plan.beltPerMin + 1e-6) issues.push(`${stage.recipeId} input exceeds the belt`);
     const next = plan.stages[index + 1];
-    if (next && stage.outputPerMin + 1e-6 < next.inputPerMin) {
+    if (next && stage.outputPerMin + 1e-6 < next.inputPerMin && !next.underfedNote) {
       issues.push(`${stage.recipeId} does not feed ${next.recipeId}`);
+    }
+    if (stage.underfedNote) {
+      const prev = plan.stages[index - 1];
+      if (!prev || prev.outputPerMin + SURPLUS_EPSILON >= stage.inputPerMin) {
+        issues.push(`${stage.recipeId} is marked underfed but supply covers it`);
+      }
+      if (!plant.labels.some((label) => label.id === `${stage.recipeId}-underfed`)) {
+        issues.push(`${stage.recipeId} underfed note is missing from the plant`);
+      }
     }
     const overflow = plant.belts.filter((belt) => belt.role === "overflow-stub" && belt.rowId === stage.recipeId);
     const surplus = next ? stage.outputPerMin - next.inputPerMin : 0;

@@ -176,6 +176,9 @@ function renderSummary(host: HTMLElement, plant: Plant): void {
     lines.push(`${trim(goal.outputPerMin)} ${itemName(plan.goalItemId)} / min`);
   }
   if (plan.limitNote) lines.push(plan.limitNote);
+  for (const stage of plan.stages) {
+    if (stage.underfedNote) lines.push(stage.underfedNote);
+  }
   lines.push(`Mk${plan.beltMk} belt · ${plan.beltPerMin} items/min on every line`);
   for (const stage of plan.stages) lines.push(...stageLines(stage));
   for (let index = 0; index < plan.stages.length - 1; index += 1) {
@@ -185,6 +188,7 @@ function renderSummary(host: HTMLElement, plant: Plant): void {
     const recipe = RECIPES[stage.recipeId];
     const item = itemName(recipe.outputs[0]?.itemId ?? "");
     const surplus = stage.outputPerMin - next.inputPerMin;
+    if (next.underfedNote) continue;
     lines.push(
       surplus > SURPLUS_EPSILON
         ? `Surplus ${trim(surplus)} ${item} / min backs up in the buffer. Suggestion: smart splitter on overflow → Awesome Sink, then bank. Clocks stay at 100%.`
@@ -202,6 +206,7 @@ function renderSummary(host: HTMLElement, plant: Plant): void {
   for (const [index, line] of lines.entries()) {
     const p = document.createElement("p");
     if (index === 0) p.className = "stat";
+    else if (line.startsWith("Underfed") || line.includes(" is underfed.")) p.className = "warn";
     p.textContent = line;
     host.append(p);
   }

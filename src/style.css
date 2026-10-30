@@ -146,6 +146,11 @@ legend {
   font: 650 22px/1.2 ui-monospace, "Cascadia Code", monospace;
 }
 
+#summary .warn {
+  color: var(--amber);
+  font-weight: 650;
+}
+
 .hint {
   margin-top: 16px;
   font-size: 12px;

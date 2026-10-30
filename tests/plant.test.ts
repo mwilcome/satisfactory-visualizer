@@ -135,10 +135,16 @@ describe("other chains", () => {
     expect(solveChain("cable-copper", 4).stages.map((stage) => stage.machines)).toEqual([8, 16, 8]);
   });
 
-  it("belt-limits Cable from Iron Wire and blocks Mk1", () => {
-    const blocked = solveChain("cable-iron", 1);
-    expect(blocked.blockedReason).toMatch(/60/);
-    expect(blocked.blockedReason).toMatch(/45/);
+  it("keeps Mk1 Cable from Iron Wire and says the cable stage is underfed", () => {
+    const plan = solveChain("cable-iron", 1);
+    expect(plan.blockedReason).toBeNull();
+    expect(plan.stages.map((stage) => stage.machines)).toEqual([1, 2, 1]);
+    expect(plan.stages[2]?.underfedNote).toMatch(/60/);
+    expect(plan.stages[2]?.underfedNote).toMatch(/45/);
+    const plant = buildChainPlant(plan);
+    expect(layoutIssues(plant)).toEqual([]);
+    expect(plant.labels.some((label) => label.id === "cable-underfed")).toBe(true);
+    expect(plant.belts.some((belt) => belt.rowId === "cable" && belt.role === "input-port")).toBe(true);
     const mk2 = solveChain("cable-iron", 2);
     expect(mk2.stages.map((stage) => stage.machines)).toEqual([2, 3, 1]);
     expect(mk2.limitNote).toMatch(/belt-limited/);

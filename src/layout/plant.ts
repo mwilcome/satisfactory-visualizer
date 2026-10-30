@@ -64,6 +64,7 @@ interface RowSpec {
   length: number;
   /** Output of this stage minus the next stage's draw. Zero on the goal row. */
   surplusPerMin: number;
+  underfedNote: string | null;
 }
 
 export function buildChainPlant(plan: ChainPlan): Plant {
@@ -98,6 +99,7 @@ export function buildChainPlant(plan: ChainPlan): Plant {
       outputItem: recipe.outputs[0]?.itemId ?? "",
       length: building.length,
       surplusPerMin,
+      underfedNote: stage.underfedNote,
     } satisfies RowSpec;
   });
 
@@ -368,6 +370,14 @@ function layRow(
 
   if (row.surplusPerMin > SURPLUS_EPSILON) {
     layOverflow(draft, row, mergerZ, yWalk, yBelt, lastX, floorIndex);
+  }
+
+  if (row.underfedNote) {
+    draft.labels.push({
+      id: `${row.id}-underfed`,
+      text: row.underfedNote,
+      position: { x: machineCenterX(0, row.strideTiles), y: yWalk + 3.6, z: INPUT_Z - 5 },
+    });
   }
 }
 

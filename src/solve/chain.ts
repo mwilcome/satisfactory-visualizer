@@ -9,6 +9,8 @@ export interface StagePlan {
   machines: number;
   inputPerMin: number;
   outputPerMin: number;
+  /** Set when the previous stage cannot cover this stage's draw. */
+  underfedNote: string | null;
 }
 
 export interface ChainPlan {
@@ -76,8 +78,13 @@ export function solveChain(chainId: ChainId, beltMk: BeltMk): ChainPlan {
     goalCount -= 1;
   }
 
+  const notes = recipes.map(() => null as string | null);
   if (!counts) {
-    return { ...empty, blockedReason: blockedReason(recipes, cap, beltMk) };
+    const underfed = underfedCounts(recipes, cap);
+    counts = underfed.counts;
+    underfed.notes.forEach((note, index) => {
+      notes[index] = note;
+    });
   }
 
   const stages: StagePlan[] = recipes.map((recipe, index) => {
@@ -89,17 +96,19 @@ export function solveChain(chainId: ChainId, beltMk: BeltMk): ChainPlan {
       machines,
       inputPerMin: machines * (input?.perMin ?? 0),
       outputPerMin: machines * (output?.perMin ?? 0),
+      underfedNote: notes[index] ?? null,
     };
   });
 
   const building = goal.buildingId === "smelter" ? "smelter" : "constructor";
   const placed = stages[last]?.machines ?? 0;
   const made = stages[last]?.outputPerMin ?? 0;
+  const underfed = stages.some((stage) => stage.underfedNote);
   return {
     ...empty,
     stages,
     limitNote:
-      placed < goalCap
+      !underfed && placed < goalCap
         ? `Output is belt-limited to ${trim(made)} / min (${placed} ${building}${placed === 1 ? "" : "s"}). The output belt could hold ${goalCap}.`
         : null,
   };
@@ -134,33 +143,37 @@ function recipeList(chainId: ChainId) {
   return CHAINS[chainId].stages.map((id) => RECIPES[id]);
 }
 
-function blockedReason(
+/**
+ * Upstream belts cannot fully feed the goal row. Keep every stage that
+ * fits on its own belt, and mark the stage whose draw is short.
+ */
+function underfedCounts(
   recipes: ReturnType<typeof recipeList>,
   cap: number[],
-  beltMk: BeltMk,
-): string {
+): { counts: number[]; notes: (string | null)[] } {
   const last = recipes.length - 1;
-  const goal = recipes[last];
-  const goalInput = goal?.inputs[0];
-  if (!goal || !goalInput) return `Mk${beltMk} cannot feed this chain.`;
-  let demand = goalInput.perMin;
-  let demandItem = goalInput.itemId;
-  for (let index = last - 1; index >= 0; index -= 1) {
-    const recipe = recipes[index];
-    const output = recipe?.outputs[0];
-    const input = recipe?.inputs[0];
-    if (!recipe || !output || !input) break;
+  const counts = recipes.map(() => 0);
+  counts[last] = cap[last] ?? 0;
+  const notes = recipes.map(() => null as string | null);
+  for (let index = last; index > 0; index -= 1) {
+    const downstream = recipes[index];
+    const upstream = recipes[index - 1];
+    const input = downstream?.inputs[0];
+    const output = upstream?.outputs[0];
+    if (!downstream || !upstream || !input || !output) continue;
+    const demand = (counts[index] ?? 0) * input.perMin;
     const need = Math.ceil(demand / output.perMin - 1e-9);
-    const stageCap = cap[index] ?? 0;
-    if (need > stageCap) {
-      const supply = stageCap * output.perMin;
-      const item = ITEMS[demandItem as keyof typeof ITEMS]?.name ?? demandItem;
-      return `Mk${beltMk} cannot feed one ${goal.name} machine. It draws ${trim(demand)} ${item}/min from ${recipe.name}, and that belt supplies ${trim(supply)}/min.`;
+    const upstreamCap = cap[index - 1] ?? 0;
+    if (need <= upstreamCap) {
+      counts[index - 1] = Math.max(need, 0);
+      continue;
     }
-    demand = need * input.perMin;
-    demandItem = input.itemId;
+    counts[index - 1] = upstreamCap;
+    const supply = upstreamCap * output.perMin;
+    const item = ITEMS[input.itemId as keyof typeof ITEMS]?.name ?? input.itemId;
+    notes[index] = `${downstream.name} is underfed. It draws ${trim(demand)} ${item}/min. ${upstream.name} supplies ${trim(supply)}/min.`;
   }
-  return `Mk${beltMk} cannot feed one ${goal.name} machine.`;
+  return { counts, notes };
 }
 
 function trim(value: number): string {
