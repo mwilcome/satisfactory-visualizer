@@ -4,7 +4,6 @@ import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment
 import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 import { WALKWAY } from "../data/catalog";
 import {
-  AWESOME_SINK_PARTS,
   BUFFER_PARTS,
   CONSTRUCTOR_PARTS,
   MERGER_PARTS,
@@ -100,7 +99,6 @@ export class FactoryView {
       ["merger", groupFromParts(MERGER_PARTS, this.materials)],
       ["buffer", groupFromParts(BUFFER_PARTS, this.materials)],
       ["smartSplitter", groupFromParts(SMART_SPLITTER_PARTS, this.materials)],
-      ["sink", groupFromParts(AWESOME_SINK_PARTS, this.materials)],
       ["bank", groupFromParts(BUFFER_PARTS, this.materials)],
     ]);
 
@@ -239,7 +237,6 @@ export class FactoryView {
         solid.kind === "merger" ||
         solid.kind === "buffer" ||
         solid.kind === "smartSplitter" ||
-        solid.kind === "sink" ||
         solid.kind === "bank"
       ) {
         const proto = this.prototypes.get(solid.kind);

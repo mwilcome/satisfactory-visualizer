@@ -385,9 +385,7 @@ function layFeedSurplus(
   liftXPos: number,
   splitX: number,
 ): void {
-  const sink = BUILDINGS.awesomeSink;
-  const sinkMinZ = 32;
-  const sinkZ = sinkMinZ + sink.length / 2;
+  const overflowEndZ = 40;
   const flow = {
     itemId: row.outputItem,
     role: "overflow-stub" as const,
@@ -427,45 +425,24 @@ function layFeedSurplus(
     draft,
     `${row.id}-overflow-to-sink`,
     { x: splitX, y: yBelt, z: mergerZ + SPLIT / 2 },
-    { x: splitX, y: yBelt, z: sinkMinZ },
+    { x: splitX, y: yBelt, z: overflowEndZ },
     flow,
-  );
-  draft.solids.push({
-    id: `${row.id}-sink`,
-    kind: "sink",
-    floorId: row.floor.id,
-    rowId: row.id,
-    base: { x: splitX, y: yWalk, z: sinkZ },
-    size: { x: sink.width, y: sink.height, z: sink.length },
-  });
-  coverFoundations(
-    draft,
-    row.floor,
-    splitX - sink.width / 2,
-    splitX + sink.width / 2,
-    mergerZ,
-    sinkZ + sink.length / 2,
   );
   draft.labels.push(
     {
       id: `${row.id}-smart-label`,
       text: "Smart splitter",
-      position: { x: splitX, y: yWalk + 2.6, z: mergerZ },
+      position: { x: splitX, y: yWalk + 2.6, z: mergerZ - 3 },
     },
     {
       id: `${row.id}-any-label`,
       text: "Any",
-      position: { x: splitX - 6, y: yWalk + 2.2, z: mergerZ },
+      position: { x: splitX - 8, y: yWalk + 1.6, z: mergerZ + 3 },
     },
     {
       id: `${row.id}-overflow-label`,
-      text: "Overflow",
-      position: { x: splitX, y: yWalk + 2.2, z: mergerZ + 6 },
-    },
-    {
-      id: `${row.id}-sink-label`,
-      text: "Awesome Sink",
-      position: { x: splitX, y: yWalk + sink.height + 1.2, z: sinkZ },
+      text: "Overflow out (to sink)",
+      position: { x: splitX, y: yWalk + 2.4, z: overflowEndZ },
     },
   );
 }
@@ -473,21 +450,6 @@ function layFeedSurplus(
 /** Feed-apron x for this stage's output. Higher floors sit closer to the machines. */
 function feedSplitX(gap: number, gaps: number): number {
   return -10 - (gaps - 1 - gap) * (BUILDINGS.awesomeSink.width + 2);
-}
-
-function coverFoundations(
-  draft: Draft,
-  floor: Floor,
-  minX: number,
-  maxX: number,
-  minZ: number,
-  maxZ: number,
-): void {
-  const ix0 = Math.floor(minX / TILE);
-  const ix1 = Math.floor((maxX - 1e-9) / TILE);
-  const iz0 = Math.floor(minZ / TILE);
-  const iz1 = Math.floor((maxZ - 1e-9) / TILE);
-  fillPad(draft, floor, ix0, ix1, iz0, iz1);
 }
 
 function layLogistics(
@@ -637,7 +599,11 @@ function layStageLink(
   draft.labels.push({
     id: `label-buffer-${upper.id}`,
     text: surplus ? "Bank" : `${itemName(item)} buffer`,
-    position: { x: BUFFER_X, y: walkY(upper.floor) + storage.height + 0.6, z: INPUT_Z },
+    position: {
+      x: BUFFER_X + gap * 4,
+      y: walkY(upper.floor) + storage.height + 0.6,
+      z: INPUT_Z,
+    },
   });
 }
 

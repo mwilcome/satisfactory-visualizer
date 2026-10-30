@@ -1,9 +1,11 @@
 import { isBeltMk, type BeltMk } from "../data/catalog";
 import {
   CHAINS,
+  PRODUCTS,
   isChainId,
   isProductId,
   productOf,
+  standardChain,
   type ChainId,
   type ProductId,
 } from "../data/chains";
@@ -47,6 +49,17 @@ export function parseSelection(raw: string | null): Selection {
 
 export function serializeSelection(selection: Selection): string {
   return JSON.stringify(selection);
+}
+
+/** Saved chain for this product, or the standard one. Cable with no save is copper. */
+export function chainForProduct(
+  productId: ProductId,
+  byProduct: Partial<Record<ProductId, ChainId>> | undefined,
+): ChainId {
+  const remembered = byProduct?.[productId];
+  const product = PRODUCTS[productId];
+  if (remembered && product.chains.includes(remembered)) return remembered;
+  return standardChain(productId);
 }
 
 function sanitizeByProduct(value: unknown): Partial<Record<ProductId, ChainId>> {

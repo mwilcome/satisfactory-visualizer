@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BUILDINGS, FOUNDATION_HEIGHTS_LATER_M, storyAirM, storyClearanceM } from "../src/data/catalog";
 import { CHAINS, standardChain, type ChainId } from "../src/data/chains";
+import { chainForProduct } from "../src/ui/selection";
 import {
   AWESOME_SINK_PARTS,
   BUFFER_PARTS,
@@ -90,20 +91,18 @@ describe("manifold layout", () => {
 
   it("puts Any to the industrial bank and Overflow straight to the sink at the feed end", () => {
     const screws = buildDemoPlant(3);
-    const sink = screws.solids.find((solid) => solid.kind === "sink");
     const bank = screws.solids.find((solid) => solid.kind === "bank");
     const smart = screws.solids.find((solid) => solid.kind === "smartSplitter");
     expect(smart?.size).toEqual({ x: 4, y: 1, z: 4 });
-    expect(sink?.size).toEqual({ x: 16, y: 24, z: 13 });
+    expect(screws.solids.some((solid) => solid.kind === "sink")).toBe(false);
     expect(bank?.size).toEqual({ x: 11, y: 8, z: 5 });
     expect(smart && smart.base.x < screws.feedEndX).toBe(true);
-    expect(sink && sink.base.x < screws.feedEndX).toBe(true);
     expect(bank && bank.base.x < screws.feedEndX).toBe(true);
-    expect(sink && smart && Math.abs(sink.base.x - smart.base.x) < 1e-6 && sink.base.z > smart.base.z).toBe(true);
     const overflow = screws.belts.find((belt) => belt.id.endsWith("overflow-to-sink"));
-    expect(overflow && sink && Math.max(overflow.from.z, overflow.to.z) <= sink.base.z - sink.size.z / 2 + 1e-6).toBe(true);
+    expect(overflow && Math.abs(overflow.from.x - overflow.to.x) < 1e-6).toBe(true);
+    expect(overflow && Math.max(overflow.from.z, overflow.to.z)).toBe(40);
     expect(screws.labels.some((label) => label.text === "Any")).toBe(true);
-    expect(screws.labels.some((label) => label.text === "Overflow")).toBe(true);
+    expect(screws.labels.some((label) => label.text === "Overflow out (to sink)")).toBe(true);
     expect(screws.labels.some((label) => label.text === "Bank")).toBe(true);
 
     const plate = buildChainPlant(solveChain("iron-plate", 3));
@@ -159,8 +158,11 @@ describe("other chains", () => {
 });
 
 describe("saved output", () => {
-  it("opens Cable on the copper wire feed", () => {
+  it("opens Cable on the copper wire feed unless that choice was saved", () => {
     expect(standardChain("cable")).toBe("cable-copper");
+    expect(chainForProduct("cable", {})).toBe("cable-copper");
+    expect(chainForProduct("cable", { screws: "cast-screw" })).toBe("cable-copper");
+    expect(chainForProduct("cable", { cable: "cable-iron" })).toBe("cable-iron");
     expect(standardChain("wire")).toBe("wire-copper");
   });
 

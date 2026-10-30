@@ -60,28 +60,30 @@ export function layoutIssues(plant: Plant): string[] {
         if (output && belt.itemId !== output.itemId) issues.push(`${belt.id} is not the surplus item`);
         if (Math.abs(belt.designPerMin - surplus) > 1e-6) issues.push(`${belt.id} is not the surplus rate`);
       }
-      if (!smart || !sink || !bank) issues.push(`${stage.recipeId} overflow path is missing a building`);
+      if (!smart || !bank) issues.push(`${stage.recipeId} overflow path is missing a building`);
+      if (plant.solids.some((solid) => solid.kind === "sink" && solid.rowId === stage.recipeId)) {
+        issues.push(`${stage.recipeId} draws an Awesome Sink`);
+      }
       const row = plant.rows.find((item) => item.id === stage.recipeId);
       if (smart && smart.base.x >= plant.feedEndX) issues.push(`${stage.recipeId} smart splitter is not at the feed end`);
       if (smart && row && smart.base.x > row.feedEndX) issues.push(`${stage.recipeId} smart splitter is on the open end`);
-      if (sink && sink.base.x >= plant.feedEndX) issues.push(`${stage.recipeId} sink is not at the feed end`);
-      if (sink && smart && Math.abs(sink.base.x - smart.base.x) > 1e-6) {
-        issues.push(`${stage.recipeId} overflow does not run straight from the splitter`);
-      }
-      if (sink && smart && !(sink.base.z > smart.base.z)) issues.push(`${stage.recipeId} sink is not beside the splitter`);
       const overflowBelt = overflow.find((belt) => belt.id.endsWith("overflow-to-sink"));
-      if (overflowBelt && sink) {
-        const endZ = Math.max(overflowBelt.from.z, overflowBelt.to.z);
-        if (endZ > sink.base.z - sink.size.z / 2 + 1e-6) issues.push(`${stage.recipeId} overflow belt runs past the sink`);
-        if (Math.abs(overflowBelt.from.x - overflowBelt.to.x) > 1e-6) {
+      if (!overflowBelt) issues.push(`${stage.recipeId} has no overflow out belt`);
+      if (overflowBelt && smart) {
+        if (Math.abs(overflowBelt.from.x - overflowBelt.to.x) > 1e-6 || Math.abs(overflowBelt.from.x - smart.base.x) > 1e-6) {
           issues.push(`${stage.recipeId} overflow belt is not a straight side output`);
         }
+        const endZ = Math.max(overflowBelt.from.z, overflowBelt.to.z);
+        if (endZ < 40 - 1e-6) issues.push(`${stage.recipeId} overflow belt does not leave the factory`);
       }
-      const sinkBox = BUILDINGS.awesomeSink;
+      if (
+        !plant.labels.some(
+          (label) => label.id === `${stage.recipeId}-overflow-label` && label.text === "Overflow out (to sink)",
+        )
+      ) {
+        issues.push(`${stage.recipeId} overflow label is missing`);
+      }
       const bankBox = BUILDINGS.storageIndustrial;
-      if (sink && (sink.size.x !== sinkBox.width || sink.size.y !== sinkBox.height || sink.size.z !== sinkBox.length)) {
-        issues.push(`${stage.recipeId} sink is not the wiki footprint`);
-      }
       if (bank && (bank.size.x !== bankBox.length || bank.size.y !== bankBox.height || bank.size.z !== bankBox.width)) {
         issues.push(`${stage.recipeId} bank is not the industrial storage footprint`);
       }

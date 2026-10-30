@@ -4,7 +4,6 @@ import {
   PRODUCT_ORDER,
   PRODUCTS,
   productOf,
-  standardChain,
   type ChainId,
   type ProductId,
 } from "./data/chains";
@@ -13,7 +12,7 @@ import { buildChainPlant } from "./layout/plant";
 import type { Plant } from "./layout/types";
 import { FactoryView } from "./render/view";
 import { SURPLUS_EPSILON, solveChain, type StagePlan } from "./solve/chain";
-import { STORAGE_KEY, parseSelection, serializeSelection } from "./ui/selection";
+import { STORAGE_KEY, chainForProduct, parseSelection, serializeSelection } from "./ui/selection";
 
 const viewportEl = document.querySelector<HTMLElement>("#viewport");
 const summaryEl = document.querySelector<HTMLElement>("#summary");
@@ -98,11 +97,7 @@ function showChain(chainId: ChainId, mk: BeltMk): void {
 }
 
 function chooseProduct(productId: ProductId): void {
-  const mk = selectedMk();
-  const remembered = selection.byProduct[productId];
-  const product = PRODUCTS[productId];
-  const chainId = remembered && product.chains.includes(remembered) ? remembered : standardChain(productId);
-  showChain(chainId, mk);
+  showChain(chainForProduct(productId, selection.byProduct), selectedMk());
 }
 
 function syncControls(chainId: ChainId): void {
@@ -197,7 +192,7 @@ function renderSummary(host: HTMLElement, plant: Plant): void {
     if (next.underfedNote) continue;
     lines.push(
       surplus > SURPLUS_EPSILON
-        ? `Surplus ${trim(surplus)} ${item} / min. Feed end: smart splitter, Any to the bank, Overflow to the Awesome Sink. Clocks stay at 100%.`
+        ? `Surplus ${trim(surplus)} ${item} / min. Feed end: smart splitter, Any to the bank, Overflow out (to sink). Clocks stay at 100%.`
         : `${item} balances the next machines. Clocks stay at 100%.`,
     );
   }
