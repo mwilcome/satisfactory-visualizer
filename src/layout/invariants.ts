@@ -188,7 +188,9 @@ export function layoutIssues(plant: Plant): string[] {
     const inputCount = recipe?.inputs.length ?? 1;
     const outputCount = recipe?.outputs.length ?? 1;
     if (machines.length !== row.machineCount) issues.push(`${row.id} machine count drifted`);
-    if (splitters.length !== machines.length * inputCount || mergers.length !== machines.length * outputCount) {
+    const distinctX = new Set(machines.map((machine) => machine.base.x)).size;
+    const sharedOutput = mergers.length === distinctX && distinctX < machines.length;
+    if (splitters.length !== machines.length * inputCount || (mergers.length !== machines.length * outputCount && !sharedOutput)) {
       issues.push(`${row.id} is not one splitter per input and one merger per output`);
     }
     if (outputCount !== 1) issues.push(`${row.id} has more than one output`);
@@ -213,12 +215,16 @@ export function layoutIssues(plant: Plant): string[] {
       const home = plant.floors.find((floor) => floor.id === machine.floorId);
       if (spec.height > (home?.heightClearanceM ?? 12) - FOUNDATION_HEIGHT_M) issues.push(`${machine.id} does not fit the story`);
       const laneSplitters = splitters.filter((item) => item.rowIndex === machine.rowIndex);
-      const merger = mergers.find((item) => item.rowIndex === machine.rowIndex);
+      const inputOnLowZ = (laneSplitters[0]?.base.z ?? 0) < machine.base.z;
+      const merger = mergers.find(
+        (item) =>
+          Math.abs(item.base.x - machine.base.x) < 1e-6 &&
+          (inputOnLowZ ? item.base.z > machine.base.z : item.base.z < machine.base.z),
+      );
       if (laneSplitters.length !== inputCount || !merger) {
         issues.push(`${machine.id} is missing a manifold pair`);
         continue;
       }
-      const inputOnLowZ = (laneSplitters[0]?.base.z ?? 0) < machine.base.z;
       const machineIn = inputOnLowZ ? machine.base.z - machine.size.z / 2 : machine.base.z + machine.size.z / 2;
       const machineOut = inputOnLowZ ? machine.base.z + machine.size.z / 2 : machine.base.z - machine.size.z / 2;
       const mergerFace = inputOnLowZ ? merger.base.z - merger.size.z / 2 : merger.base.z + merger.size.z / 2;

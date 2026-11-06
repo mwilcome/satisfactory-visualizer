@@ -288,7 +288,8 @@ describe("assembler and foundry", () => {
     const splitters = plant.solids.filter((solid) => solid.kind === "splitter" && solid.rowId === "reinforced-iron-plate");
     const mergers = plant.solids.filter((solid) => solid.kind === "merger" && solid.rowId === "reinforced-iron-plate");
     expect(splitters).toHaveLength(12);
-    expect(mergers).toHaveLength(6);
+    expect(mergers).toHaveLength(3);
+    expect(mergers.every((solid) => solid.base.z === 0)).toBe(true);
     const low = splitters.find((solid) => solid.lane === 0 && solid.rowIndex === 0);
     const high = splitters.find((solid) => solid.lane === 1 && solid.rowIndex === 0);
     if (!low || !high) throw new Error("assembler lanes missing");
