@@ -134,7 +134,7 @@ export function recipePlaceable(recipe: Recipe): boolean {
 
 /**
  * An item is selectable when some combination of placeable recipes builds it.
- * The player's current alt picks are applied later, at Generate.
+ * The player's current alt picks are applied when the plant rebuilds.
  */
 export function supportedItemIds(): Set<string> {
   const known = new Map<string, boolean>();

@@ -204,13 +204,13 @@ export class FactoryView {
     };
   }
 
-  /** Hide or show one group of world tags. Survives the next Generate. */
+  /** Hide or show one group of world tags. Survives the next rebuild. */
   setLabelLayer(layer: LabelLayer, shown: boolean): void {
     this.labelShown.set(layer, shown);
     this.applyLabelLayers();
   }
 
-  show(plant: Plant): void {
+  show(plant: Plant, reframe = true): void {
     this.releasePlant();
     const root = new THREE.Group();
     root.name = "plant";
@@ -224,7 +224,7 @@ export class FactoryView {
     this.scene.add(root);
     this.plant = root;
     this.applyLabelLayers();
-    this.frame(root);
+    this.frame(root, reframe);
   }
 
   private clearHighlight(): void {
@@ -283,18 +283,20 @@ export class FactoryView {
     this.labels.setSize(width, height);
   }
 
-  private frame(root: THREE.Object3D): void {
+  private frame(root: THREE.Object3D, moveCamera: boolean): void {
     const box = new THREE.Box3().setFromObject(root);
     const center = box.getCenter(new THREE.Vector3());
     const sphere = box.getBoundingSphere(new THREE.Sphere());
-    const target = new THREE.Vector3(center.x, box.min.y + Math.min(8, sphere.radius * 0.15), center.z);
-    const direction = new THREE.Vector3(-0.72, 0.48, -0.9).normalize();
-    const vFov = THREE.MathUtils.degToRad(this.camera.fov);
-    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * this.camera.aspect);
-    const dist = (sphere.radius / Math.sin(Math.min(vFov, hFov) / 2)) * 1.18;
-    this.camera.position.copy(target).addScaledVector(direction, dist);
-    this.controls.target.copy(target);
-    this.controls.update();
+    if (moveCamera) {
+      const target = new THREE.Vector3(center.x, box.min.y + Math.min(8, sphere.radius * 0.15), center.z);
+      const direction = new THREE.Vector3(-0.72, 0.48, -0.9).normalize();
+      const vFov = THREE.MathUtils.degToRad(this.camera.fov);
+      const hFov = 2 * Math.atan(Math.tan(vFov / 2) * this.camera.aspect);
+      const dist = (sphere.radius / Math.sin(Math.min(vFov, hFov) / 2)) * 1.18;
+      this.camera.position.copy(target).addScaledVector(direction, dist);
+      this.controls.target.copy(target);
+      this.controls.update();
+    }
     const span = sphere.radius * 1.4;
     const shadow = this.sun.shadow.camera;
     shadow.left = -span;

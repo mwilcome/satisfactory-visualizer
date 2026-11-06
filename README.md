@@ -13,7 +13,7 @@ npm run dev
 
 ## Happy path
 
-Open the app. The first visit builds Screws at Mk3 using Cast Screws. After that, pick an item, alt recipes, and a belt mark, then press Generate. The plant rebuilds only then. Every item in the pinned snapshot is listed. An item can be chosen when some whole chain uses only Smelters, Constructors, Foundries, Assemblers, and Manufacturers, with raw resources on input belts. The rest stay listed and cannot be selected. An alt that needs a fluid, or an input this layout cannot make, stays listed and cannot be turned on. The alt list has a checkbox, off by default, that shows only alts for the item you picked.
+Open the app. The first visit builds Screws at Mk3 using Cast Screws. After that, the plant updates when you pick an item, a recipe, or a belt mark. Search, the recipe filter, and a save file only change the list. Every item in the pinned snapshot is listed. An item can be chosen when some whole chain uses only Smelters, Constructors, Foundries, Assemblers, and Manufacturers, with raw resources on input belts. The rest stay listed and cannot be selected. An alt that needs a fluid, or an input this layout cannot make, stays listed and cannot be turned on. The alt list has a checkbox, off by default, that shows only alts for the item you picked.
 
 Alt recipes replace the default recipe for that item. The list is the full snapshot, or the alts unlocked in a save. The `.sav` file is parsed in the browser and is not uploaded. The belt mark is the rate. Machines follow the recipe and stay at 100%. Cast Screws, as a reference. The screw stage uses two belts, so the constructor count is twice what one belt holds:
 

@@ -344,17 +344,6 @@ legend {
   color: var(--muted);
 }
 
-#generate {
-  width: 100%;
-  margin: 0 0 14px;
-  padding: 10px 12px;
-  border: 0;
-  background: var(--amber);
-  color: var(--amber-ink);
-  font: 650 15px/1 "Segoe UI", sans-serif;
-  cursor: pointer;
-}
-
 #item-list [aria-disabled="true"] {
   color: var(--muted);
   cursor: default;

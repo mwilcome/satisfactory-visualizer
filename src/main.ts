@@ -23,7 +23,6 @@ const altItemOnlyEl = document.querySelector<HTMLInputElement>("#alt-item-only")
 const altItemOnlyLabelEl = document.querySelector<HTMLElement>("#alt-item-only-label");
 const saveFileEl = document.querySelector<HTMLInputElement>("#save-file");
 const saveNoteEl = document.querySelector<HTMLElement>("#save-note");
-const generateEl = document.querySelector<HTMLButtonElement>("#generate");
 
 if (
   !viewportEl ||
@@ -40,8 +39,7 @@ if (
   !altItemOnlyEl ||
   !altItemOnlyLabelEl ||
   !saveFileEl ||
-  !saveNoteEl ||
-  !generateEl
+  !saveNoteEl
 ) {
   throw new Error("App shell is missing.");
 }
@@ -61,7 +59,6 @@ const altItemOnly: HTMLInputElement = altItemOnlyEl;
 const altItemOnlyLabel: HTMLElement = altItemOnlyLabelEl;
 const saveFile: HTMLInputElement = saveFileEl;
 const saveNote: HTMLElement = saveNoteEl;
-const generateButton: HTMLButtonElement = generateEl;
 const targets = pickerItems();
 const supported = supportedItemIds();
 const alts = altEntries();
@@ -69,8 +66,10 @@ const view = new FactoryView(viewport);
 let shown: Plant | null = null;
 let cardAnchor: Vec3 | null = null;
 let cardDragged = false;
+let openMachineId: string | null = null;
 let floorsOn = true;
 let cardOn = true;
+let rebuildTimer = 0;
 view.onPick = (solid) => renderDetail(solid);
 view.onFrame = () => {
   if (!cardAnchor || cardDragged || detail.hidden) return;
@@ -96,7 +95,9 @@ function setMk(mk: BeltMk): void {
   if (radio) radio.checked = true;
 }
 
-function showItem(next: Selection): void {
+function showItem(next: Selection, reframe: boolean): void {
+  const keepId = reframe ? null : openMachineId;
+  const keepDragged = !reframe && cardDragged;
   selection = next;
   persist();
   syncForm();
@@ -117,18 +118,31 @@ function showItem(next: Selection): void {
     summary.textContent = issues.join(" ");
     return;
   }
-  view.show(plant);
+  view.show(plant, reframe);
   shown = plant;
-  cardAnchor = null;
-  cardDragged = false;
-  detail.hidden = true;
-  detail.style.visibility = "";
   renderFloors(floors, plant);
   renderSummary(summary, plant);
+  const again = keepId ? plant.solids.find((solid) => solid.kind === "machine" && solid.id === keepId) : undefined;
+  renderDetail(again ?? null, keepDragged);
 }
 
-function renderDetail(solid: Solid | null): void {
+/** Item changes rebuild immediately and reframe. Belt and recipe changes wait, and keep the camera. */
+function rebuildNow(): void {
+  window.clearTimeout(rebuildTimer);
+  showItem(selection, true);
+}
+
+function scheduleRebuild(): void {
+  window.clearTimeout(rebuildTimer);
+  rebuildTimer = window.setTimeout(() => showItem(selection, false), 150);
+}
+
+function renderDetail(solid: Solid | null, keepPlacement = false): void {
+  const left = detail.style.left;
+  const top = detail.style.top;
+  const dragged = keepPlacement && cardDragged;
   if (!solid || solid.kind !== "machine" || !shown) {
+    openMachineId = null;
     cardAnchor = null;
     cardDragged = false;
     detail.hidden = true;
@@ -136,6 +150,7 @@ function renderDetail(solid: Solid | null): void {
     view.focusMachine(null);
     return;
   }
+  openMachineId = solid.id;
   const recipe = solid.recipeId ? RECIPES[solid.recipeId] : undefined;
   const stage = shown.plan.stages.find((item) => item.stageId === solid.rowId);
   const floor = stage ? shown.plan.stages.indexOf(stage) + 1 : 0;
@@ -171,10 +186,15 @@ function renderDetail(solid: Solid | null): void {
       detail.append(out);
     }
   }
-  cardDragged = false;
+  cardDragged = dragged;
   cardAnchor = view.focusMachine(solid);
   detail.hidden = !cardOn;
   detail.style.visibility = "";
+  if (dragged) {
+    detail.style.left = left;
+    detail.style.top = top;
+    return;
+  }
   if (cardAnchor && cardOn) moveCardBeside(cardAnchor);
 }
 
@@ -244,7 +264,7 @@ function syncForm(): void {
   refreshBeltMarks();
   title.textContent = item?.name ?? selection.itemId;
   const inputs = goal?.inputs.map((stack) => itemName(stack.itemId)).join(" + ") ?? "";
-  lede.textContent = goal ? `${goal.name}. ${inputs} in. Press Generate after you change the item, alts, or belt.` : "Search for a part.";
+  lede.textContent = goal ? `${goal.name}. ${inputs} in. The factory updates when the item, a recipe, or the belt changes.` : "Search for a part.";
   document.title = `${title.textContent} — Satisfactory visualizer`;
   search.value = item?.name ?? "";
   setMk(selection.mk);
@@ -283,6 +303,7 @@ function renderAlts(): void {
       persist();
       renderAlts();
       refreshBeltMarks();
+      scheduleRebuild();
     });
     const name = document.createElement("span");
     name.textContent = alt.placeable ? alt.name : `${alt.name} (needs a later building)`;
@@ -337,6 +358,7 @@ function chooseItem(itemId: string): void {
   selection = { itemId, mk: selectedMk(), recipes: { ...selection.recipes } };
   persist();
   syncForm();
+  rebuildNow();
 }
 
 function moveActive(delta: number): void {
@@ -584,6 +606,7 @@ for (const input of document.querySelectorAll<HTMLInputElement>('input[name="mk"
     if (!input.checked) return;
     selection = { ...selection, mk: selectedMk() };
     persist();
+    scheduleRebuild();
   });
 }
 
@@ -615,7 +638,5 @@ saveFile.addEventListener("change", () => {
   });
 });
 
-generateButton.addEventListener("click", () => showItem(selection));
-
 syncForm();
-showItem(selection);
+showItem(selection, true);
