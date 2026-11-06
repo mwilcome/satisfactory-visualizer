@@ -192,10 +192,27 @@ body {
 }
 
 h1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin: 6px 0 8px;
   font-size: 28px;
   font-weight: 650;
   letter-spacing: -0.03em;
+}
+
+h1 img,
+#item-list img,
+.recipe-item img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  flex: none;
+}
+
+h1 img {
+  width: 40px;
+  height: 40px;
 }
 
 .lede,
@@ -250,7 +267,10 @@ h1 {
 }
 
 #item-list [role="option"] {
-  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
   cursor: pointer;
   font-size: 14px;
 }
@@ -266,9 +286,13 @@ h1 {
 }
 
 .recipe-group p {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0 0 6px;
   color: var(--ink);
   font-size: 13px;
+  font-weight: 650;
 }
 
 .marks.col {

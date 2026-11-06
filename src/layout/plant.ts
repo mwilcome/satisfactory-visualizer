@@ -40,7 +40,10 @@ import type { Belt, Floor, Plant, PlantLabel, Ramp, Solid, Vec3, WalkCorridor } 
  * A further input is 1 m farther from the machine and 2 m higher than the lane
  * inside it. No conveyor lift sits between those splitters.
  * A stage uses two facing rows only when its busiest item is at least twice
- * the quietest. That item gets two belts. The other lines stay one trunk.
+ * the quietest. That item gets two belts. A fat input keeps both belts on the
+ * outside and both rows share one output manifold in the middle. A fat output
+ * is the other facing: the inputs meet in the middle and each row keeps its
+ * own output belt on the outside.
  * Ports stay on the face centerline until a measured connector offset exists.
  */
 
@@ -349,6 +352,11 @@ function sidePose(
   };
 }
 
+/** Both output faces point at one merger line on z = 0. Inputs stay on the outside. */
+function outputMeetsInMiddle(row: RowSpec): boolean {
+  return row.doubled && !row.fatIsOutput;
+}
+
 /** Two facing lines only when both sides have a machine. Otherwise the single row at z face 3. */
 function posesFor(doubled: boolean, fatIsOutput: boolean, machines: number, length: number, inputCount: number): SideSpec[] {
   const alone = sidePose(1, INPUT_FACE_Z, length, inputCount, machines, 0);
@@ -356,6 +364,7 @@ function posesFor(doubled: boolean, fatIsOutput: boolean, machines: number, leng
   const sideA = Math.ceil(machines / 2);
   const sideB = Math.floor(machines / 2);
   if (sideB < 1) return [alone];
+  // In to out. The input trunk is the middle. Each side carries its own output belt.
   if (fatIsOutput) {
     const gap = 6 + (inputCount - 1);
     return [
@@ -363,9 +372,11 @@ function posesFor(doubled: boolean, fatIsOutput: boolean, machines: number, leng
       sidePose(-1, -gap, length, inputCount, sideB, 100),
     ];
   }
+  // Out to in. One shared output manifold at z = 0, inputs on the outer faces.
+  const reach = length + PORT_PAD + SPLIT / 2;
   return [
-    sidePose(-1, length + 6, length, inputCount, sideA, 0),
-    sidePose(1, -(length + 6), length, inputCount, sideB, 100),
+    sidePose(-1, reach, length, inputCount, sideA, 0),
+    sidePose(1, -reach, length, inputCount, sideB, 100),
   ];
 }
 
@@ -525,15 +536,19 @@ function laySide(
         { itemId: input?.itemId ?? row.inputItem, role: "input-port", rowId: row.id, designPerMin: input?.perMin ?? row.inputPerMin },
       );
     }
-    draft.solids.push({
-      id: `${row.id}-mg-${rowIndex}`,
-      kind: "merger",
-      floorId: row.floor.id,
-      rowId: row.id,
-      rowIndex,
-      base: { x, y: yWalk, z: side.mergerZ },
-      size: { x: SPLIT, y: BUILDINGS.merger.height, z: SPLIT },
-    });
+    const sharedOutput = outputMeetsInMiddle(row);
+    const ownsMerger = !sharedOutput || sideIndex === 0;
+    if (ownsMerger) {
+      draft.solids.push({
+        id: `${row.id}-mg-${rowIndex}`,
+        kind: "merger",
+        floorId: row.floor.id,
+        rowId: row.id,
+        rowIndex,
+        base: { x, y: yWalk, z: side.mergerZ },
+        size: { x: SPLIT, y: BUILDINGS.merger.height, z: SPLIT },
+      });
+    }
     addBelt(
       draft,
       `${row.id}-out-port-${rowIndex}`,
@@ -568,18 +583,22 @@ function laySide(
           },
         );
       }
-      addBelt(
-        draft,
-        `${row.id}-out-run-${rowIndex}`,
-        { x: next - SPLIT / 2, y: yBelt, z: side.mergerZ },
-        { x: x + SPLIT / 2, y: yBelt, z: side.mergerZ },
-        {
-          itemId: row.outputItem,
-          role: "output-manifold",
-          rowId: row.id,
-          designPerMin: downstream * row.outputPerMin,
-        },
-      );
+      if (ownsMerger) {
+        const other = sharedOutput ? (row.sides[1]?.count ?? 0) : 0;
+        const beyond = downstream + Math.max(0, other - index - 1);
+        addBelt(
+          draft,
+          `${row.id}-out-run-${rowIndex}`,
+          { x: next - SPLIT / 2, y: yBelt, z: side.mergerZ },
+          { x: x + SPLIT / 2, y: yBelt, z: side.mergerZ },
+          {
+            itemId: row.outputItem,
+            role: "output-manifold",
+            rowId: row.id,
+            designPerMin: beyond * row.outputPerMin,
+          },
+        );
+      }
 
       const gapStart = x + building.width / 2;
       const gapEnd = next - building.width / 2;
@@ -1477,6 +1496,26 @@ function liftColumn(
 function layProductMulti(draft: Draft, row: RowSpec, made: number): void {
   const y = beltCenterY(row.floor);
   const face = rowFaceX(row);
+  if (outputMeetsInMiddle(row)) {
+    const side = row.sides[0];
+    if (!side) return;
+    const z = side.mergerZ;
+    const clear = apronZ(z);
+    const flow = { itemId: row.outputItem, role: "product-output" as const, rowId: row.id, designPerMin: made };
+    addBelt(draft, "product-center", { x: face, y, z }, { x: -4, y, z }, flow);
+    if (Math.abs(clear - z) > 1e-6) {
+      addBelt(draft, "product-clear", { x: -4, y, z }, { x: -4, y, z: clear }, flow);
+    }
+    addBelt(draft, "product-apron", { x: -4, y, z: clear }, { x: EXIT_X, y, z: clear }, flow);
+    addBelt(draft, "product-exit", { x: EXIT_X, y, z: clear }, { x: EXIT_X, y, z: EXIT_Z }, flow);
+    addFoundation(draft, row.floor, tileIndex(EXIT_X), tileIndex(EXIT_Z));
+    draft.labels.push({
+      id: "label-product",
+      text: `${itemName(row.outputItem)} out`,
+      position: { x: EXIT_X, y: walkY(row.floor) + 2.4, z: EXIT_Z },
+    });
+    return;
+  }
   if (row.fatIsOutput) {
     for (const [sideIndex, side] of row.sides.entries()) {
       const rate = side.count * row.outputPerMin;
@@ -1586,7 +1625,8 @@ function layFeedMulti(
   const belt = plan.beltPerMin;
   const per = input.perMin;
   const groundFloor = row.stageIndex === 0;
-  if (row.fatInputSlot === lane) {
+  // A shared output owns z = 0, so every input, quiet ones included, arrives on the outside.
+  if (row.fatInputSlot === lane || outputMeetsInMiddle(row)) {
     for (const [sideIndex, side] of row.sides.entries()) {
       const rate = capped(side.count * per, belt, `${row.id} ${input.itemId}`);
       const z = side.laneZ[lane] ?? INPUT_Z;
@@ -1755,21 +1795,30 @@ function layLinkMulti(
   }
 
   const sent = Math.min(output, drawn > 0 ? drawn : output, belt);
-  if (source.sides.length === 1 && source.sides[0]) {
+  const sharedOutput = outputMeetsInMiddle(source) && source.sides[0];
+  if ((source.sides.length === 1 && source.sides[0]) || sharedOutput) {
     const side = source.sides[0];
     const claimed = claimColumn(draft, [source.floor.id, dest.floor.id]);
     const liftAt = slotLiftX(claimed.x, claimed.slot);
-    const rawSide = srcRates[0] ?? output;
+    const rawSide = sharedOutput ? output : (srcRates[0] ?? output);
     const sideRate = placeSurplus ? forwardRate(draft, source) : capped(rawSide, belt, `${source.id} output`);
+    const flow = { itemId: item, role: "stage-link" as const, rowId: source.id, designPerMin: sideRate };
+    let pullX = face;
+    let pullZ = side.mergerZ;
+    if (sharedOutput && Math.abs(pullZ) < 8) {
+      const clear = apronZ(pullZ);
+      addBelt(draft, `${source.id}-pull-${dest.id}-l${lane}-off`, { x: pullX, y, z: pullZ }, { x: -4, y, z: pullZ }, flow);
+      addBelt(draft, `${source.id}-pull-${dest.id}-l${lane}-clear`, { x: -4, y, z: pullZ }, { x: -4, y, z: clear }, flow);
+      pullX = -4;
+      pullZ = clear;
+    }
     if (placeSurplus) {
-      layFeedSurplus(draft, source, side.mergerZ, walkY(source.floor), y, face, liftAt, (face + liftAt) / 2);
-    } else {
-      addBelt(draft, `${source.id}-pull-${dest.id}-l${lane}`, { x: face, y, z: side.mergerZ }, { x: liftAt, y, z: side.mergerZ }, {
-        itemId: item, role: "stage-link", rowId: source.id, designPerMin: sideRate,
-      });
+      layFeedSurplus(draft, source, pullZ, walkY(source.floor), y, pullX, liftAt, (pullX + liftAt) / 2);
+    } else if (Math.abs(pullX - liftAt) > 1e-6) {
+      addBelt(draft, `${source.id}-pull-${dest.id}-l${lane}`, { x: pullX, y, z: pullZ }, { x: liftAt, y, z: pullZ }, flow);
     }
     const arrived = liftColumn(
-      draft, source, dest, liftAt, side.mergerZ, liftAt, item, sideRate,
+      draft, source, dest, liftAt, pullZ, liftAt, item, sideRate,
       `${source.id}-to-${dest.id}-l${lane}`, placeSurplus, claimed.slot,
     );
     deliverToDest(draft, dest, lane, arrived.exitX, arrived.exitZ, item, dstRates, belt, sent);

@@ -59,6 +59,11 @@ const labelsMore: HTMLButtonElement = labelsMoreEl;
 const labelGroups: HTMLElement = labelGroupsEl;
 const summary: HTMLElement = summaryEl;
 const title: HTMLElement = titleEl;
+const titleNameEl = title.querySelector<HTMLElement>("#title-name");
+const titleIconEl = title.querySelector<HTMLImageElement>("#title-icon");
+if (!titleNameEl || !titleIconEl) throw new Error("App shell is missing.");
+const titleName: HTMLElement = titleNameEl;
+const titleIcon: HTMLImageElement = titleIconEl;
 const lede: HTMLElement = ledeEl;
 const search: HTMLInputElement = searchEl;
 const itemList: HTMLUListElement = listEl;
@@ -272,10 +277,12 @@ function syncForm(): void {
   const picked = selection.recipes[selection.itemId];
   const goal = (picked && RECIPES[picked]) || standardRecipe(selection.itemId);
   refreshBeltMarks();
-  title.textContent = item?.name ?? selection.itemId;
+  titleName.textContent = item?.name ?? selection.itemId;
+  titleIcon.src = `/icons/${selection.itemId}.png`;
+  titleIcon.alt = "";
   const inputs = goal?.inputs.map((stack) => itemName(stack.itemId)).join(" + ") ?? "";
   lede.textContent = goal ? `${goal.name}. ${inputs} in. The factory updates when the item, a recipe, or the belt changes.` : "Search for a part.";
-  document.title = `${title.textContent} — Satisfactory visualizer`;
+  document.title = `${titleName.textContent} — Satisfactory visualizer`;
   search.value = item?.name ?? "";
   setMk(selection.mk);
   altItemOnlyLabel.textContent = `${item?.name ?? "This item"} only`;
@@ -297,7 +304,13 @@ function renderAlts(): void {
     if (alt.itemId !== lastItem) {
       lastItem = alt.itemId;
       const heading = document.createElement("p");
-      heading.textContent = alt.itemName;
+      heading.className = "recipe-item";
+      const icon = document.createElement("img");
+      icon.src = `/icons/${alt.itemId}.png`;
+      icon.alt = "";
+      icon.width = 32;
+      icon.height = 32;
+      heading.append(icon, document.createTextNode(alt.itemName));
       altsHost.append(heading);
     }
     const input = document.createElement("input");
@@ -347,8 +360,15 @@ function openList(query: string): void {
     const option = document.createElement("li");
     option.id = `item-opt-${index}`;
     option.setAttribute("role", "option");
-    option.textContent = item.selectable ? item.name : `${item.name} — not in this phase`;
+    const icon = document.createElement("img");
+    icon.src = `/icons/${item.id}.png`;
+    icon.alt = "";
+    icon.width = 32;
+    icon.height = 32;
+    const name = document.createElement("span");
+    name.textContent = item.selectable ? item.name : `${item.name} — not in this phase`;
     option.setAttribute("aria-disabled", item.selectable ? "false" : "true");
+    option.append(icon, name);
     option.addEventListener("mousedown", (event) => {
       event.preventDefault();
       if (!item.selectable) return;
