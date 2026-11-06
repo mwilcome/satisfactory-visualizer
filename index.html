@@ -10,6 +10,17 @@
     <div id="viewport">
       <section id="floors" hidden aria-label="Floors"></section>
       <aside id="detail" hidden></aside>
+      <div id="layers" role="group" aria-label="Show">
+        <span>Show</span>
+        <label><input type="checkbox" data-layer="ends" checked /> Ends</label>
+        <label><input type="checkbox" data-layer="inputs" checked /> Inputs</label>
+        <label><input type="checkbox" data-layer="outputs" checked /> Outputs</label>
+        <label><input type="checkbox" data-layer="buffers" checked /> Buffers</label>
+        <label><input type="checkbox" data-layer="overflow" checked /> Overflow</label>
+        <label><input type="checkbox" data-layer="notes" checked /> Notes</label>
+        <label><input type="checkbox" data-layer="floors" checked /> Floors</label>
+        <label><input type="checkbox" data-layer="card" checked /> Card</label>
+      </div>
     </div>
     <aside id="panel">
       <p class="eyebrow">Satisfactory visualizer</p>
@@ -58,7 +69,7 @@
       </fieldset>
       <button id="generate" type="button">Generate</button>
       <div id="summary" aria-live="polite"></div>
-      <p class="hint">Drag to orbit. Scroll to zoom. Click a machine for its recipe, then drag the card by its title. No walking camera yet.</p>
+      <p class="hint">Drag to orbit. Scroll to zoom. Click a machine for its recipe, then drag the card by its title. The Show row hides tags, the floor list, and the card. No walking camera yet.</p>
     </aside>
     <script type="module" src="/src/main.ts"></script>
   </body>

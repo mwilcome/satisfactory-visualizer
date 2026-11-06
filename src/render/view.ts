@@ -19,6 +19,23 @@ import type { Plant, Solid, Vec3 } from "../layout/types";
 
 export type PickHandler = (solid: Solid | null) => void;
 
+/** World-tag groups. Ends, item ports, storage, overflow, and underfed notes. */
+export const LABEL_LAYERS = ["ends", "inputs", "outputs", "buffers", "overflow", "notes"] as const;
+export type LabelLayer = (typeof LABEL_LAYERS)[number];
+
+export function isLabelLayer(value: string): value is LabelLayer {
+  return (LABEL_LAYERS as readonly string[]).includes(value);
+}
+
+function labelLayer(text: string): LabelLayer {
+  if (text === "Open end" || text === "Feed end") return "ends";
+  if (text === "Smart splitter" || text === "Any" || text.startsWith("Overflow")) return "overflow";
+  if (text === "Bank" || text.endsWith("buffer")) return "buffers";
+  if (text.endsWith(" in")) return "inputs";
+  if (text.endsWith(" out")) return "outputs";
+  return "notes";
+}
+
 const BELT_H = 1;
 const BELT_W = 2;
 
@@ -43,6 +60,7 @@ export class FactoryView {
   private readonly raycaster = new THREE.Raycaster();
   private readonly projected = new THREE.Vector3();
   private disposed = false;
+  private readonly labelShown = new Map<LabelLayer, boolean>(LABEL_LAYERS.map((layer) => [layer, true]));
   onPick: PickHandler | null = null;
   onFrame: (() => void) | null = null;
 
@@ -186,6 +204,12 @@ export class FactoryView {
     };
   }
 
+  /** Hide or show one group of world tags. Survives the next Generate. */
+  setLabelLayer(layer: LabelLayer, shown: boolean): void {
+    this.labelShown.set(layer, shown);
+    this.applyLabelLayers();
+  }
+
   show(plant: Plant): void {
     this.releasePlant();
     const root = new THREE.Group();
@@ -199,6 +223,7 @@ export class FactoryView {
     this.addLabels(root, plant);
     this.scene.add(root);
     this.plant = root;
+    this.applyLabelLayers();
     this.frame(root);
   }
 
@@ -361,9 +386,20 @@ export class FactoryView {
       div.className = "tag";
       div.textContent = label.text;
       const obj = new CSS2DObject(div);
+      obj.userData.labelLayer = labelLayer(label.text);
       obj.position.set(label.position.x, label.position.y, label.position.z);
       root.add(obj);
     }
+  }
+
+  private applyLabelLayers(): void {
+    if (!this.plant) return;
+    this.plant.traverse((object) => {
+      if (!(object instanceof CSS2DObject)) return;
+      const layer = object.userData.labelLayer as LabelLayer | undefined;
+      if (!layer) return;
+      object.visible = this.labelShown.get(layer) !== false;
+    });
   }
 }
 

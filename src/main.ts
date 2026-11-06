@@ -2,7 +2,7 @@ import { BUILDINGS, FOUNDATION_SIZE_M, ITEMS, RECIPES, isBeltMk, isBuildingId, t
 import { layoutIssues } from "./layout/invariants";
 import { buildChainPlant } from "./layout/plant";
 import type { Plant, Solid, Vec3 } from "./layout/types";
-import { FactoryView } from "./render/view";
+import { FactoryView, isLabelLayer } from "./render/view";
 import { SURPLUS_EPSILON, type StagePlan } from "./solve/chain";
 import { altEntries, pickerItems, solveTarget, standardRecipe, supportedItemIds } from "./solve/target";
 import { STORAGE_KEY, parseSelection, serializeSelection, type Selection } from "./ui/selection";
@@ -11,6 +11,7 @@ import { unlockedRecipeClasses } from "./ui/save-alts";
 const viewportEl = document.querySelector<HTMLElement>("#viewport");
 const floorsEl = document.querySelector<HTMLElement>("#floors");
 const detailEl = document.querySelector<HTMLElement>("#detail");
+const layersEl = document.querySelector<HTMLElement>("#layers");
 const summaryEl = document.querySelector<HTMLElement>("#summary");
 const titleEl = document.querySelector<HTMLElement>("#title");
 const ledeEl = document.querySelector<HTMLElement>("#lede");
@@ -28,6 +29,7 @@ if (
   !viewportEl ||
   !floorsEl ||
   !detailEl ||
+  !layersEl ||
   !summaryEl ||
   !titleEl ||
   !ledeEl ||
@@ -47,6 +49,7 @@ if (
 const viewport: HTMLElement = viewportEl;
 const floors: HTMLElement = floorsEl;
 const detail: HTMLElement = detailEl;
+const layers: HTMLElement = layersEl;
 const summary: HTMLElement = summaryEl;
 const title: HTMLElement = titleEl;
 const lede: HTMLElement = ledeEl;
@@ -66,6 +69,8 @@ const view = new FactoryView(viewport);
 let shown: Plant | null = null;
 let cardAnchor: Vec3 | null = null;
 let cardDragged = false;
+let floorsOn = true;
+let cardOn = true;
 view.onPick = (solid) => renderDetail(solid);
 view.onFrame = () => {
   if (!cardAnchor || cardDragged || detail.hidden) return;
@@ -168,9 +173,9 @@ function renderDetail(solid: Solid | null): void {
   }
   cardDragged = false;
   cardAnchor = view.focusMachine(solid);
-  detail.hidden = false;
+  detail.hidden = !cardOn;
   detail.style.visibility = "";
-  if (cardAnchor) moveCardBeside(cardAnchor);
+  if (cardAnchor && cardOn) moveCardBeside(cardAnchor);
 }
 
 function moveCardBeside(anchor: Vec3): void {
@@ -439,8 +444,31 @@ function renderFloors(host: HTMLElement, plant: Plant): void {
   note.className = "floors-note";
   note.textContent = "The foundation size is the whole slab, including the feed apron.";
   host.append(note);
-  host.hidden = false;
+  host.hidden = !floorsOn;
 }
+
+layers.addEventListener("change", (event) => {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement) || !input.dataset.layer) return;
+  const layer = input.dataset.layer;
+  if (layer === "floors") {
+    floorsOn = input.checked;
+    floors.hidden = !floorsOn || floors.childElementCount === 0;
+    return;
+  }
+  if (layer === "card") {
+    cardOn = input.checked;
+    if (!cardOn || !cardAnchor) {
+      detail.hidden = true;
+      return;
+    }
+    detail.hidden = false;
+    detail.style.visibility = "";
+    moveCardBeside(cardAnchor);
+    return;
+  }
+  if (isLabelLayer(layer)) view.setLabelLayer(layer, input.checked);
+});
 
 function machinesPerRow(plant: Plant, stageId: string): number[] {
   let first = 0;
