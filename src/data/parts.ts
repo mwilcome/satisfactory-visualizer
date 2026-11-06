@@ -73,6 +73,17 @@ export function footprintErrors(parts: SolidPart[], size: FootprintBox): string[
   return errors;
 }
 
+/** Manufacturer: wide body, 18 × 20 × 12. Ports stay on the face centerline. */
+export const MANUFACTURER_PARTS: SolidPart[] = [
+  { size: [18, 0.4, 20], center: [0, 0.2, 0], material: "dark" },
+  { size: [16, 9.2, 16], center: [0, 5, 0], material: "body" },
+  { size: [18, 1.2, 2], center: [0, 11.4, 0], material: "steel" },
+  { size: [10, 2.2, 0.4], center: [0, 2.2, -9.8], material: "port" },
+  { size: [6, 1.8, 0.4], center: [0, 1.8, 9.8], material: "port" },
+  { size: [0.4, 8, 14], center: [-8.8, 4.6, 0], material: "orange" },
+  { size: [0.4, 8, 14], center: [8.8, 4.6, 0], material: "orange" },
+];
+
 /** Smelter: low front maw, tall rear tower. Footprint 5 × 10 × 8.5. */
 export const SMELTER_PARTS: SolidPart[] = [
   { size: [5, 0.35, 10], center: [0, 0.175, 0], material: "dark" },

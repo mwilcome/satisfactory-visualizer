@@ -11,8 +11,14 @@ import {
 import type { InputSource, WiredStage } from "../data/chains";
 import { solveWired, type ChainPlan } from "./chain";
 
-const SUPPORTED = new Set(["smelter", "constructor", "foundry", "assembler"]);
-const MACHINE_RANK: Record<string, number> = { smelter: 0, constructor: 1, foundry: 2, assembler: 3 };
+const SUPPORTED = new Set(["smelter", "constructor", "foundry", "assembler", "manufacturer"]);
+const MACHINE_RANK: Record<string, number> = {
+  smelter: 0,
+  constructor: 1,
+  foundry: 2,
+  assembler: 3,
+  manufacturer: 4,
+};
 
 /** Recipes that output this item, standard one first. */
 export function recipesFor(itemId: string): Recipe[] {
@@ -187,17 +193,22 @@ export interface AltEntry {
 
 /** Every alternate in the snapshot. Ones this phase cannot place stay listed. */
 export function altEntries(): AltEntry[] {
+  const supported = supportedItemIds();
   return Object.values(RECIPES)
     .filter((recipe) => recipe.alternate)
     .map((recipe) => {
       const itemId = recipe.outputs[0]?.itemId ?? "";
+      const inputsOk = recipe.inputs.every((input) => {
+        const item = ITEMS[input.itemId];
+        return !!item && !item.fluid && (item.raw || supported.has(input.itemId));
+      });
       return {
         id: recipe.id,
         name: recipe.name,
         itemId,
         itemName: ITEMS[itemId]?.name ?? itemId,
         className: recipe.className,
-        placeable: recipePlaceable(recipe),
+        placeable: unsupported(recipe) === null && inputsOk,
       };
     })
     .sort((a, b) => a.itemName.localeCompare(b.itemName) || a.name.localeCompare(b.name));
@@ -212,7 +223,7 @@ function expand(
 ): string | null {
   if (out.length > 40) return "This chain is too deep to lay out.";
   const item = ITEMS[itemId];
-  if (!item) return `${itemId} is outside the Smelter, Constructor, Foundry, and Assembler set.`;
+  if (!item) return `${itemId} is outside the buildings this layout can place.`;
   if (item.fluid) return `${item.name} is a fluid. Pipes are not in this layout.`;
   const picked = chosen[itemId];
   const forced = picked ? RECIPES[picked] : undefined;
@@ -243,12 +254,15 @@ function expand(
 }
 
 function unsupported(recipe: Recipe): string | null {
+  if (recipe.inputs.some((input) => ITEMS[input.itemId]?.fluid) || recipe.outputs.some((output) => ITEMS[output.itemId]?.fluid)) {
+    return `${recipe.name} needs a fluid. Pipes are not in this layout.`;
+  }
   if (!SUPPORTED.has(recipe.buildingId)) {
-    return `${recipe.name} uses a ${recipe.buildingId}. This layout is Smelter, Constructor, Foundry, and Assembler.`;
+    return `${recipe.name} uses a ${recipe.buildingId}. This layout is Smelter, Constructor, Foundry, Assembler, and Manufacturer.`;
   }
   if (recipe.outputs.length !== 1) return `${recipe.name} has more than one output.`;
-  if (recipe.inputs.length < 1 || recipe.inputs.length > 2) {
-    return `${recipe.name} has ${recipe.inputs.length} inputs. This layout uses one or two.`;
+  if (recipe.inputs.length < 1 || recipe.inputs.length > 4) {
+    return `${recipe.name} has ${recipe.inputs.length} inputs. This layout uses one to four.`;
   }
   return null;
 }

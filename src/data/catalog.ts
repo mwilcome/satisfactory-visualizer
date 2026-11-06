@@ -110,6 +110,16 @@ export const BUILDINGS = {
     inputs: 2,
     outputs: 1,
   },
+  manufacturer: {
+    id: "manufacturer",
+    name: "Manufacturer",
+    className: "Desc_ManufacturerMk1_C",
+    width: 18,
+    length: 20,
+    height: 12,
+    inputs: 4,
+    outputs: 1,
+  },
   splitter: {
     id: "splitter",
     name: "Conveyor Splitter",
@@ -203,10 +213,9 @@ export function inputLaneOutboardM(lane: number, inputCount: number): number {
 }
 
 /**
- * Manufacturer is not built in this phase. The stair helper above is the stub:
- * four inputs would sit 0, 1, 2, and 3 m outboard, lowest farthest.
+ * Kept so older checks can still read the four-lane stair.
+ * The placed building is BUILDINGS.manufacturer.
  * Wiki 2026-10-30: 18 × 20 × 12 m, 4 conveyor inputs, 1 output.
- * TODO: mesh, port heights, and a build once oil is not the next bound.
  */
 export const MANUFACTURER_LATER = {
   id: "manufacturer",
@@ -287,4 +296,53 @@ export function machinesPerBelt(recipe: Recipe, perMin: number): number {
     Math.floor((perMin + 1e-9) / stack.perMin),
   );
   return Math.min(...limits);
+}
+
+/**
+ * Two belts of the busiest item when it is at least twice the quietest.
+ * A second belt that does not add machines stays one row.
+ * Ties keep the first rate: the other fat item then shrinks the count.
+ */
+export const DOUBLE_RATIO = 2;
+
+export interface StageBeltPlan {
+  machines: number;
+  doubled: boolean;
+  fatIsOutput: boolean;
+  /** Set when the two belts are an input. Null when they are the output, or the stage is one row. */
+  fatInputSlot: number | null;
+  fatItemId: string;
+}
+
+export function stageBelts(recipe: Recipe, perMin: number): StageBeltPlan {
+  const output = recipe.outputs[0];
+  const rates = [...recipe.inputs.map((stack) => stack.perMin), output?.perMin ?? 0];
+  const items = [...recipe.inputs.map((stack) => stack.itemId), output?.itemId ?? ""];
+  const single = machinesPerBelt(recipe, perMin);
+  const fat = Math.max(...rates);
+  const thin = Math.min(...rates);
+  const fatIndex = rates.findIndex((rate) => rate === fat);
+  const oneRow: StageBeltPlan = {
+    machines: single,
+    doubled: false,
+    fatIsOutput: false,
+    fatInputSlot: null,
+    fatItemId: items[fatIndex] ?? "",
+  };
+  if (!output || single < 1 || fat + 1e-9 < thin * DOUBLE_RATIO) return oneRow;
+  const perFat = Math.floor((perMin + 1e-9) / fat);
+  let doubled = perFat * 2;
+  for (let index = 0; index < rates.length; index += 1) {
+    if (index === fatIndex) continue;
+    doubled = Math.min(doubled, Math.floor((perMin + 1e-9) / (rates[index] ?? fat)));
+  }
+  if (doubled <= single) return oneRow;
+  const fatIsOutput = fatIndex === recipe.inputs.length;
+  return {
+    machines: doubled,
+    doubled: true,
+    fatIsOutput,
+    fatInputSlot: fatIsOutput ? null : fatIndex,
+    fatItemId: items[fatIndex] ?? "",
+  };
 }

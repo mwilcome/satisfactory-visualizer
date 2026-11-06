@@ -38,5 +38,5 @@ export function solveScrewsFromIron(beltMk: BeltMk): ScrewPlan {
   };
 }
 
-/** Readable default. Mk3 fits five constructors — a real manifold, still small. */
+/** Readable default. Mk3 Cast Screws is ten constructors on two belts. */
 export const DEMO_BELT_MK: BeltMk = 3;

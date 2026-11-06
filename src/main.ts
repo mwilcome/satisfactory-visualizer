@@ -16,6 +16,8 @@ const searchEl = document.querySelector<HTMLInputElement>("#item-search");
 const listEl = document.querySelector<HTMLUListElement>("#item-list");
 const altsEl = document.querySelector<HTMLElement>("#alts");
 const altSearchEl = document.querySelector<HTMLInputElement>("#alt-search");
+const altItemOnlyEl = document.querySelector<HTMLInputElement>("#alt-item-only");
+const altItemOnlyLabelEl = document.querySelector<HTMLElement>("#alt-item-only-label");
 const saveFileEl = document.querySelector<HTMLInputElement>("#save-file");
 const saveNoteEl = document.querySelector<HTMLElement>("#save-note");
 const generateEl = document.querySelector<HTMLButtonElement>("#generate");
@@ -29,6 +31,8 @@ if (
   !listEl ||
   !altsEl ||
   !altSearchEl ||
+  !altItemOnlyEl ||
+  !altItemOnlyLabelEl ||
   !saveFileEl ||
   !saveNoteEl ||
   !generateEl
@@ -44,6 +48,8 @@ const search: HTMLInputElement = searchEl;
 const itemList: HTMLUListElement = listEl;
 const altsHost: HTMLElement = altsEl;
 const altSearch: HTMLInputElement = altSearchEl;
+const altItemOnly: HTMLInputElement = altItemOnlyEl;
+const altItemOnlyLabel: HTMLElement = altItemOnlyLabelEl;
 const saveFile: HTMLInputElement = saveFileEl;
 const saveNote: HTMLElement = saveNoteEl;
 const generateButton: HTMLButtonElement = generateEl;
@@ -106,13 +112,16 @@ function syncForm(): void {
   document.title = `${title.textContent} — Satisfactory visualizer`;
   search.value = item?.name ?? "";
   setMk(selection.mk);
+  altItemOnlyLabel.textContent = `${item?.name ?? "This item"} only`;
   renderAlts();
 }
 
 function renderAlts(): void {
   const needle = altSearch.value.trim().toLowerCase();
+  const itemOnly = altItemOnly.checked;
   const visible = alts.filter((alt) => {
     if (altMode === "save" && !unlockedClasses.has(alt.className)) return false;
+    if (itemOnly && alt.itemId !== selection.itemId) return false;
     if (!needle) return true;
     return `${alt.itemName} ${alt.name}`.toLowerCase().includes(needle);
   });
@@ -147,7 +156,13 @@ function renderAlts(): void {
   if (visible.length === 0) {
     const empty = document.createElement("p");
     empty.className = "hint";
-    empty.textContent = altMode === "save" ? "No unlocked alts yet. Load a save, or switch to all alts." : "No alts match.";
+    const itemLabel = ITEMS[selection.itemId]?.name ?? "this item";
+    empty.textContent =
+      altMode === "save"
+        ? "No unlocked alts yet. Load a save, or switch to all alts."
+        : itemOnly
+          ? `No alts for ${itemLabel}.`
+          : "No alts match.";
     altsHost.append(empty);
   }
 }
@@ -223,6 +238,7 @@ function renderSummary(host: HTMLElement, plant: Plant): void {
   }
   if (plan.limitNote) lines.push(plan.limitNote);
   for (const stage of plan.stages) {
+    if (stage.manifoldNote) lines.push(stage.manifoldNote);
     if (stage.underfedNote) lines.push(stage.underfedNote);
   }
   lines.push(`Mk${plan.beltMk} belt · ${plan.beltPerMin} items/min on every line`);
@@ -248,7 +264,11 @@ function renderSummary(host: HTMLElement, plant: Plant): void {
   if (plan.stages.some((stage) => (RECIPES[stage.recipeId].inputs.length ?? 0) > 1)) {
     lines.push("Input lanes step 1 m outward per height. The lowest lane is farthest from the machines.");
   }
-  lines.push("Machines pack on a 1 m stride. Foundations stay 8×8. Floors are 3 wall-heights (12 m) apart.");
+  lines.push(
+    plant.floors.some((floor) => floor.storyKind === "manufacturer")
+      ? "Machines pack on a 1 m stride. Foundations stay 8×8. Production floors are 3 wall-heights (12 m) apart. A Manufacturer floor is 4 (16 m)."
+      : "Machines pack on a 1 m stride. Foundations stay 8×8. Floors are 3 wall-heights (12 m) apart.",
+  );
   lines.push("Walk the gaps between machines. The ramp is at the feed end.");
   for (const [index, line] of lines.entries()) {
     const p = document.createElement("p");
@@ -357,6 +377,7 @@ for (const input of document.querySelectorAll<HTMLInputElement>('input[name="alt
 }
 
 altSearch.addEventListener("input", () => renderAlts());
+altItemOnly.addEventListener("change", () => renderAlts());
 
 saveFile.addEventListener("change", () => {
   const file = saveFile.files?.[0];

@@ -36,12 +36,15 @@ export function layoutIssues(plant: Plant): string[] {
       if (Math.abs(actual - stage.machines * input.perMin) > 1e-6) {
         issues.push(`${stage.stageId} input ${slot} is not machines × ${input.perMin}`);
       }
-      if (actual > plan.beltPerMin + 1e-6) issues.push(`${stage.stageId} input exceeds the belt`);
+      const inputCap =
+        stage.doubled && !stage.fatIsOutput && slot === stage.fatInputSlot ? plan.beltPerMin * 2 : plan.beltPerMin;
+      if (actual > inputCap + 1e-6) issues.push(`${stage.stageId} input exceeds the belt`);
     }
     if (Math.abs(stage.inputPerMin - (stage.inputsPerMin[0] ?? 0)) > 1e-6) {
       issues.push(`${stage.stageId} input total drifted`);
     }
-    if (stage.outputPerMin > plan.beltPerMin + 1e-6) issues.push(`${stage.stageId} output exceeds the belt`);
+    const outputCap = stage.doubled && stage.fatIsOutput ? plan.beltPerMin * 2 : plan.beltPerMin;
+    if (stage.outputPerMin > outputCap + 1e-6) issues.push(`${stage.stageId} output exceeds the belt`);
     for (const consumer of plan.stages) {
       consumer.inputFrom.forEach((source, slot) => {
         if (source !== index) return;
@@ -75,10 +78,12 @@ export function layoutIssues(plant: Plant): string[] {
     const bank = plant.solids.find((solid) => solid.kind === "bank" && solid.rowId === stage.stageId);
     if (surplus > SURPLUS_EPSILON) {
       if (overflow.length < 1) issues.push(`${stage.stageId} surplus has no overflow belts`);
+      let overflowSum = 0;
       for (const belt of overflow) {
         if (output && belt.itemId !== output.itemId) issues.push(`${belt.id} is not the surplus item`);
-        if (Math.abs(belt.designPerMin - surplus) > 1e-6) issues.push(`${belt.id} is not the surplus rate`);
+        overflowSum += belt.designPerMin;
       }
+      if (Math.abs(overflowSum - surplus) > 1e-6) issues.push(`${stage.stageId} overflow is not the surplus rate`);
       if (!smart || !bank) issues.push(`${stage.stageId} overflow path is missing a building`);
       if (plant.solids.some((solid) => solid.kind === "sink" && solid.rowId === stage.stageId)) {
         issues.push(`${stage.stageId} draws an Awesome Sink`);
@@ -119,14 +124,18 @@ export function layoutIssues(plant: Plant): string[] {
   if (!lower || !upper) return issues;
   for (const floor of plant.floors) {
     if (floor.foundationHeightM !== 1) issues.push(`${floor.id} foundation is not 1 m`);
-    if (floor.heightClearanceM !== 12 || floor.wallCount !== 3 || floor.storyKind !== "production") {
+    if (floor.storyKind === "manufacturer") {
+      if (floor.heightClearanceM !== 16 || floor.wallCount !== 4) issues.push(`${floor.id} is not a 4-wall manufacturer story`);
+    } else if (floor.heightClearanceM !== 12 || floor.wallCount !== 3 || floor.storyKind !== "production") {
       issues.push(`${floor.id} is not a 3-wall production story`);
     }
   }
   for (let index = 1; index < plant.floors.length; index += 1) {
     const below = plant.floors[index - 1];
     const above = plant.floors[index];
-    if (below && above && above.z - below.z !== 12) issues.push("floor pitch is not 12 m");
+    if (below && above && Math.abs(above.z - below.z - below.heightClearanceM) > 1e-6) {
+      issues.push("floor pitch does not match the story below");
+    }
   }
 
   const marks = new Set(plant.belts.map((belt) => belt.mk));
@@ -187,7 +196,8 @@ export function layoutIssues(plant: Plant): string[] {
         machine.buildingId !== "smelter" &&
         machine.buildingId !== "constructor" &&
         machine.buildingId !== "assembler" &&
-        machine.buildingId !== "foundry"
+        machine.buildingId !== "foundry" &&
+        machine.buildingId !== "manufacturer"
       ) {
         issues.push(`${machine.id} is an unexpected building`);
         continue;
@@ -196,27 +206,33 @@ export function layoutIssues(plant: Plant): string[] {
       if (machine.size.x !== spec.width || machine.size.y !== spec.height || machine.size.z !== spec.length) {
         issues.push(`${machine.id} does not match the wiki footprint`);
       }
-      if (spec.height > 12 - FOUNDATION_HEIGHT_M) issues.push(`${machine.id} does not fit the story`);
+      const home = plant.floors.find((floor) => floor.id === machine.floorId);
+      if (spec.height > (home?.heightClearanceM ?? 12) - FOUNDATION_HEIGHT_M) issues.push(`${machine.id} does not fit the story`);
       const laneSplitters = splitters.filter((item) => item.rowIndex === machine.rowIndex);
       const merger = mergers.find((item) => item.rowIndex === machine.rowIndex);
       if (laneSplitters.length !== inputCount || !merger) {
         issues.push(`${machine.id} is missing a manifold pair`);
         continue;
       }
-      const machineIn = machine.base.z - machine.size.z / 2;
-      const machineOut = machine.base.z + machine.size.z / 2;
-      const padOut = merger.base.z - merger.size.z / 2 - machineOut;
+      const inputOnLowZ = (laneSplitters[0]?.base.z ?? 0) < machine.base.z;
+      const machineIn = inputOnLowZ ? machine.base.z - machine.size.z / 2 : machine.base.z + machine.size.z / 2;
+      const machineOut = inputOnLowZ ? machine.base.z + machine.size.z / 2 : machine.base.z - machine.size.z / 2;
+      const mergerFace = inputOnLowZ ? merger.base.z - merger.size.z / 2 : merger.base.z + merger.size.z / 2;
+      const padOut = inputOnLowZ ? mergerFace - machineOut : machineOut - mergerFace;
       if (Math.abs(padOut - 1) > 1e-6) issues.push(`${machine.id} output pad is not 1 m`);
+      const faces =
+        inputOnLowZ
+          ? laneSplitters.every((splitter) => splitter.base.z < machine.base.z) && machine.base.z < merger.base.z
+          : laneSplitters.every((splitter) => splitter.base.z > machine.base.z) && merger.base.z < machine.base.z;
+      if (!faces) issues.push(`${machine.id} does not keep input and output on opposite faces`);
       for (const splitter of laneSplitters) {
         const lane = splitter.lane ?? 0;
-        const padIn = machineIn - (splitter.base.z + splitter.size.z / 2);
+        const splitterFace = inputOnLowZ ? splitter.base.z + splitter.size.z / 2 : splitter.base.z - splitter.size.z / 2;
+        const padIn = inputOnLowZ ? machineIn - splitterFace : splitterFace - machineIn;
         const outboard = inputLaneOutboardM(lane, inputCount);
         if (Math.abs(padIn - (1 + outboard)) > 1e-6) issues.push(`${machine.id} lane ${lane} pad is not ${1 + outboard} m`);
         if (Math.abs(splitter.base.y - (machine.base.y + lane * INPUT_LANE_RISE_M)) > 1e-6) {
           issues.push(`${machine.id} lane ${lane} is not ${lane * INPUT_LANE_RISE_M} m above the floor`);
-        }
-        if (!(splitter.base.z < machine.base.z && machine.base.z < merger.base.z)) {
-          issues.push(`${machine.id} does not face input on -z and output on +z`);
         }
       }
       if (inputCount > 1) {
@@ -258,8 +274,16 @@ export function layoutIssues(plant: Plant): string[] {
       if (machine.base.x + half > row.openEndX + 1e-6) issues.push(`${machine.id} crosses the open end`);
     }
 
-    if (machines.length > 1) {
-      const ordered = [...machines].sort((a, b) => a.base.x - b.base.x);
+    const lines = new Map<number, Solid[]>();
+    for (const machine of machines) {
+      const key = Math.round(machine.base.z * 2);
+      const line = lines.get(key) ?? [];
+      line.push(machine);
+      lines.set(key, line);
+    }
+    for (const line of lines.values()) {
+      if (line.length < 2) continue;
+      const ordered = [...line].sort((a, b) => a.base.x - b.base.x);
       for (let index = 0; index < ordered.length - 1; index += 1) {
         const a = ordered[index];
         const b = ordered[index + 1];
@@ -270,7 +294,8 @@ export function layoutIssues(plant: Plant): string[] {
     }
 
     const stubs = plant.belts.filter((belt) => belt.role === "grow-stub" && belt.rowId === row.id);
-    if (stubs.length !== inputCount) issues.push(`${row.id} has no grow stub`);
+    const sideCount = stage?.doubled ? 2 : 1;
+    if (stubs.length !== inputCount * sideCount) issues.push(`${row.id} has no grow stub`);
     for (const stub of stubs) {
       if (Math.max(stub.from.x, stub.to.x) <= row.openEndX) issues.push(`${row.id} stub does not enter the open end`);
     }
@@ -315,8 +340,13 @@ export function layoutIssues(plant: Plant): string[] {
     if (ramp.width !== 4) issues.push(`${ramp.id} is not a 4 m walkway`);
     if (Math.max(ramp.from.x, ramp.to.x) > plant.feedEndX + 1e-6) issues.push(`${ramp.id} leaves the feed end`);
   }
-  const stories = Math.max(0, plant.floors.length - 1) * 12;
-  if (Math.abs(rise - stories) > 1e-6) issues.push("ramp does not climb the full story");
+  let climb = 0;
+  for (let index = 1; index < plant.floors.length; index += 1) {
+    const below = plant.floors[index - 1];
+    const above = plant.floors[index];
+    if (below && above) climb += above.z - below.z;
+  }
+  if (Math.abs(rise - climb) > 1e-6) issues.push("ramp does not climb the full story");
   for (const ramp of plant.ramps) {
     const box = rampAabb(ramp);
     for (const solid of plant.solids) {

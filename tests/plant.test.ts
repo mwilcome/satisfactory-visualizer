@@ -88,23 +88,23 @@ describe("wiki footprints", () => {
 describe("cast screw plan", () => {
   it("uses the wiki rates and the selected belt as the limit", () => {
     expect(solveScrewsFromIron(1)).toMatchObject({
-      constructors: 1,
+      constructors: 2,
       smelters: 1,
-      screwsPerMin: 50,
+      screwsPerMin: 100,
       orePerMin: 30,
-      ingotsConsumedPerMin: 12.5,
+      ingotsConsumedPerMin: 25,
       ingotsProducedPerMin: 30,
     });
-    expect(solveScrewsFromIron(2)).toMatchObject({ constructors: 2, smelters: 1, screwsPerMin: 100 });
+    expect(solveScrewsFromIron(2)).toMatchObject({ constructors: 4, smelters: 2, screwsPerMin: 200 });
     expect(solveScrewsFromIron(3)).toMatchObject({
-      constructors: 5,
-      smelters: 3,
-      screwsPerMin: 250,
-      ingotsConsumedPerMin: 62.5,
-      ingotsProducedPerMin: 90,
-      ingotSurplusPerMin: 27.5,
+      constructors: 10,
+      smelters: 5,
+      screwsPerMin: 500,
+      ingotsConsumedPerMin: 125,
+      ingotsProducedPerMin: 150,
+      ingotSurplusPerMin: 25,
     });
-    expect(solveScrewsFromIron(4)).toMatchObject({ constructors: 9, smelters: 4, screwsPerMin: 450 });
+    expect(solveScrewsFromIron(4)).toMatchObject({ constructors: 18, smelters: 8, screwsPerMin: 900 });
   });
 });
 
@@ -176,17 +176,17 @@ describe("other chains", () => {
   it("sizes iron plate, iron rod, rod screws, and both wire chains from the belt", () => {
     expect(solveChain("iron-plate", 3).stages.map((stage) => stage.machines)).toEqual([9, 9]);
     expect(solveChain("iron-rod", 1).stages.map((stage) => stage.outputPerMin)).toEqual([60, 60]);
-    expect(solveChain("screw-rod", 3).stages.map((stage) => stage.machines)).toEqual([2, 4, 6]);
-    expect(solveChain("wire-copper", 3).stages[1]?.outputPerMin).toBe(270);
+    expect(solveChain("screw-rod", 3).stages.map((stage) => stage.machines)).toEqual([4, 8, 12]);
+    expect(solveChain("wire-copper", 3).stages[1]?.outputPerMin).toBe(540);
     expect(solveChain("wire-iron", 2).stages.map((stage) => stage.machines)).toEqual([3, 5]);
-    expect(solveChain("cable-copper", 4).stages.map((stage) => stage.machines)).toEqual([8, 16, 8]);
+    expect(solveChain("cable-copper", 4).stages.map((stage) => stage.machines)).toEqual([16, 32, 16]);
   });
 
   it("keeps Mk1 Cable from Iron Wire and says the cable stage is underfed", () => {
     const plan = solveChain("cable-iron", 1);
     expect(plan.blockedReason).toBeNull();
-    expect(plan.stages.map((stage) => stage.machines)).toEqual([1, 2, 1]);
-    expect(plan.stages[2]?.underfedNote).toMatch(/60/);
+    expect(plan.stages.map((stage) => stage.machines)).toEqual([1, 2, 2]);
+    expect(plan.stages[2]?.underfedNote).toMatch(/120/);
     expect(plan.stages[2]?.underfedNote).toMatch(/45/);
     const plant = buildChainPlant(plan);
     expect(layoutIssues(plant)).toEqual([]);
@@ -273,34 +273,37 @@ describe("item catalog", () => {
 });
 
 describe("assembler and foundry", () => {
-  it("joins plates and cast screws on one assembler row", () => {
+  it("joins plates and cast screws on two facing rows when screws need two belts", () => {
     const plan = solveChain("assembler-plates-screws", 3);
     expect(plan.blockedReason).toBeNull();
-    expect(plan.stages.map((stage) => stage.machines)).toEqual([6, 6, 3, 5, 4]);
-    expect(plan.stages.map((stage) => stage.surplusPerMin)).toEqual([0, 0, 27.5, 10, 0]);
+    expect(plan.stages.map((stage) => stage.machines)).toEqual([9, 9, 4, 8, 6]);
+    expect(plan.stages.map((stage) => stage.surplusPerMin)).toEqual([0, 0, 20, 40, 0]);
     const plant = buildChainPlant(plan);
     expect(layoutIssues(plant)).toEqual([]);
     const assemblers = plant.solids.filter((solid) => solid.buildingId === "assembler");
-    expect(assemblers).toHaveLength(4);
+    expect(assemblers).toHaveLength(6);
+    const onSide = (min: number, max: number) => assemblers.filter((solid) => (solid.rowIndex ?? -1) >= min && (solid.rowIndex ?? -1) < max);
+    expect(new Set(onSide(0, 100).map((solid) => solid.base.z)).size).toBe(1);
+    expect(new Set(onSide(100, 200).map((solid) => solid.base.z)).size).toBe(1);
     const splitters = plant.solids.filter((solid) => solid.kind === "splitter" && solid.rowId === "reinforced-iron-plate");
     const mergers = plant.solids.filter((solid) => solid.kind === "merger" && solid.rowId === "reinforced-iron-plate");
-    expect(splitters).toHaveLength(8);
-    expect(mergers).toHaveLength(4);
+    expect(splitters).toHaveLength(12);
+    expect(mergers).toHaveLength(6);
     const low = splitters.find((solid) => solid.lane === 0 && solid.rowIndex === 0);
     const high = splitters.find((solid) => solid.lane === 1 && solid.rowIndex === 0);
     if (!low || !high) throw new Error("assembler lanes missing");
-    expect(low.base.z).toBeCloseTo(high.base.z - 1);
+    expect(Math.abs(low.base.z - high.base.z)).toBeCloseTo(1);
     expect(low.base.y).toBeCloseTo(high.base.y - 2);
-    expect(low.base.z).toBeLessThan(high.base.z);
     expect(plant.belts.every((belt) => belt.mk === 3)).toBe(true);
     expect(assemblers.every((solid) => solid.clock === 100)).toBe(true);
   });
 
-  it("keeps Mk1 plates-and-screws on screen and says the assembler is short of screws", () => {
+  it("keeps Mk1 plates-and-screws on one assembler row", () => {
     const plan = solveChain("assembler-plates-screws", 1);
     expect(plan.blockedReason).toBeNull();
-    expect(plan.stages[4]?.underfedNote).toMatch(/60/);
-    expect(plan.stages[4]?.underfedNote).toMatch(/50/);
+    expect(plan.stages.map((stage) => stage.machines)).toEqual([2, 2, 1, 2, 1]);
+    expect(plan.stages[4]?.doubled).toBe(false);
+    expect(plan.stages[4]?.underfedNote).toBeNull();
     expect(layoutIssues(buildChainPlant(plan))).toEqual([]);
   });
 
@@ -318,7 +321,7 @@ describe("assembler and foundry", () => {
 
     const alloy = solveChain("foundry-alloy", 1);
     expect(alloy.blockedReason).toMatch(/Mk1/);
-    expect(solveChain("foundry-alloy", 2).stages.map((stage) => stage.machines)).toEqual([1]);
+    expect(solveChain("foundry-alloy", 2).stages.map((stage) => stage.machines)).toEqual([2]);
     expect(layoutIssues(buildChainPlant(solveChain("foundry-alloy", 4)))).toEqual([]);
   });
 

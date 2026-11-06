@@ -1,4 +1,14 @@
-import { ITEMS, RECIPES, beltByMk, machinesPerBelt, type BeltMk, type Recipe, type RecipeId } from "../data/catalog";
+import {
+  ITEMS,
+  RECIPES,
+  beltByMk,
+  machinesPerBelt,
+  stageBelts,
+  type BeltMk,
+  type Recipe,
+  type RecipeId,
+  type StageBeltPlan,
+} from "../data/catalog";
 import { CHAINS, wiredStages, type ChainId, type InputSource, type WiredStage } from "../data/chains";
 
 /** A stage this close to the next draw is treated as balanced. */
@@ -21,6 +31,12 @@ export interface StagePlan {
   inputFrom: InputSource[];
   /** Set when an upstream stage cannot cover one of this stage's draws. */
   underfedNote: string | null;
+  /** Two belts of the fat item. False when that second belt would not add machines. */
+  doubled: boolean;
+  fatIsOutput: boolean;
+  fatInputSlot: number | null;
+  /** Named item that occupies two belts. Null on a single row. */
+  manifoldNote: string | null;
 }
 
 export interface ChainPlan {
@@ -71,7 +87,8 @@ export function solveWired(
   const goalOutput = goal.recipe.outputs[0];
   if (!goalOutput) throw new Error(`Chain ${chainId} goal has no output.`);
 
-  const cap = stages.map((stage) => machinesPerBelt(stage.recipe, belt.perMin));
+  const belts = stages.map((stage) => stageBelts(stage.recipe, belt.perMin));
+  const cap = belts.map((plan) => plan.machines);
   const goalCap = cap[last] ?? 0;
   const empty: ChainPlan = {
     chainId,
@@ -113,6 +130,7 @@ export function solveWired(
     const drawnPerMin = counted?.drawn[index] ?? 0;
     const surplusPerMin =
       drawnPerMin > 0 && outputPerMin > drawnPerMin + SURPLUS_EPSILON ? outputPerMin - drawnPerMin : 0;
+    const shape = laidShape(belts[index], stage.recipe, belt.perMin, machines);
     return {
       stageId: stage.id,
       recipeId: stage.recipeId,
@@ -124,6 +142,7 @@ export function solveWired(
       surplusPerMin,
       inputFrom: [...stage.from],
       underfedNote: counted?.notes[index] ?? null,
+      ...shape,
     };
   });
 
@@ -138,6 +157,26 @@ export function solveWired(
       !underfed && placed < goalCap
         ? `Output is belt-limited to ${trim(made)} / min (${placed} ${noun}). The output belt could hold ${goalCap}.`
         : null,
+  };
+}
+
+/** A doubled cap that the placed machines still fit on one belt stays one row. */
+function laidShape(
+  plan: StageBeltPlan | undefined,
+  recipe: Recipe,
+  perMin: number,
+  placed: number,
+): Pick<StagePlan, "doubled" | "fatIsOutput" | "fatInputSlot" | "manifoldNote"> {
+  const single = machinesPerBelt(recipe, perMin);
+  if (!plan?.doubled || placed <= single) {
+    return { doubled: false, fatIsOutput: false, fatInputSlot: null, manifoldNote: null };
+  }
+  const name = ITEMS[plan.fatItemId]?.name ?? plan.fatItemId;
+  return {
+    doubled: true,
+    fatIsOutput: plan.fatIsOutput,
+    fatInputSlot: plan.fatInputSlot,
+    manifoldNote: `${name} uses two belts.`,
   };
 }
 
