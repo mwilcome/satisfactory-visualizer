@@ -1,55 +1,60 @@
-import { BUILDINGS, ITEMS, RECIPES, isBeltMk, type BeltMk, type ItemId } from "./data/catalog";
-import {
-  CHAINS,
-  PRODUCT_ORDER,
-  PRODUCTS,
-  productOf,
-  type ChainId,
-  type ProductId,
-} from "./data/chains";
+import { BUILDINGS, ITEMS, RECIPES, isBeltMk, isBuildingId, type BeltMk, type ItemId } from "./data/catalog";
 import { layoutIssues } from "./layout/invariants";
 import { buildChainPlant } from "./layout/plant";
 import type { Plant } from "./layout/types";
 import { FactoryView } from "./render/view";
-import { SURPLUS_EPSILON, solveChain, type StagePlan } from "./solve/chain";
-import { STORAGE_KEY, chainForProduct, parseSelection, serializeSelection } from "./ui/selection";
+import { SURPLUS_EPSILON, type StagePlan } from "./solve/chain";
+import { altEntries, pickerItems, solveTarget, standardRecipe, supportedItemIds } from "./solve/target";
+import { STORAGE_KEY, parseSelection, serializeSelection, type Selection } from "./ui/selection";
+import { unlockedRecipeClasses } from "./ui/save-alts";
 
 const viewportEl = document.querySelector<HTMLElement>("#viewport");
 const summaryEl = document.querySelector<HTMLElement>("#summary");
-const demoEl = document.querySelector<HTMLButtonElement>("#demo");
 const titleEl = document.querySelector<HTMLElement>("#title");
 const ledeEl = document.querySelector<HTMLElement>("#lede");
-const productsEl = document.querySelector<HTMLElement>("#products");
-const recipeFieldEl = document.querySelector<HTMLElement>("#recipe-field");
-const recipeLegendEl = document.querySelector<HTMLElement>("#recipe-legend");
-const recipesEl = document.querySelector<HTMLElement>("#recipes");
+const searchEl = document.querySelector<HTMLInputElement>("#item-search");
+const listEl = document.querySelector<HTMLUListElement>("#item-list");
+const altsEl = document.querySelector<HTMLElement>("#alts");
+const altSearchEl = document.querySelector<HTMLInputElement>("#alt-search");
+const saveFileEl = document.querySelector<HTMLInputElement>("#save-file");
+const saveNoteEl = document.querySelector<HTMLElement>("#save-note");
+const generateEl = document.querySelector<HTMLButtonElement>("#generate");
 
 if (
   !viewportEl ||
   !summaryEl ||
-  !demoEl ||
   !titleEl ||
   !ledeEl ||
-  !productsEl ||
-  !recipeFieldEl ||
-  !recipeLegendEl ||
-  !recipesEl
+  !searchEl ||
+  !listEl ||
+  !altsEl ||
+  !altSearchEl ||
+  !saveFileEl ||
+  !saveNoteEl ||
+  !generateEl
 ) {
   throw new Error("App shell is missing.");
 }
 
 const viewport: HTMLElement = viewportEl;
 const summary: HTMLElement = summaryEl;
-const demo: HTMLButtonElement = demoEl;
 const title: HTMLElement = titleEl;
 const lede: HTMLElement = ledeEl;
-const products: HTMLElement = productsEl;
-const recipeField: HTMLElement = recipeFieldEl;
-const recipeLegend: HTMLElement = recipeLegendEl;
-const recipesHost: HTMLElement = recipesEl;
+const search: HTMLInputElement = searchEl;
+const itemList: HTMLUListElement = listEl;
+const altsHost: HTMLElement = altsEl;
+const altSearch: HTMLInputElement = altSearchEl;
+const saveFile: HTMLInputElement = saveFileEl;
+const saveNote: HTMLElement = saveNoteEl;
+const generateButton: HTMLButtonElement = generateEl;
+const targets = pickerItems();
+const supported = supportedItemIds();
+const alts = altEntries();
 const view = new FactoryView(viewport);
 
 let selection = parseSelection(localStorage.getItem(STORAGE_KEY));
+let altMode: "all" | "save" = "all";
+let unlockedClasses = new Set<string>();
 
 function persist(): void {
   localStorage.setItem(STORAGE_KEY, serializeSelection(selection));
@@ -66,29 +71,24 @@ function setMk(mk: BeltMk): void {
   if (radio) radio.checked = true;
 }
 
-function showChain(chainId: ChainId, mk: BeltMk): void {
-  selection = {
-    chainId,
-    mk,
-    byProduct: { ...selection.byProduct, [productOf(chainId)]: chainId },
-  };
+function showItem(next: Selection): void {
+  selection = next;
   persist();
-  syncControls(chainId);
-  const chain = CHAINS[chainId];
-  title.textContent = chain.title;
-  lede.textContent = chain.lede;
-  document.title = `${chain.title} — Satisfactory visualizer`;
-
-  const plan = solveChain(chainId, mk);
+  syncForm();
+  const plan = solveTarget(selection.itemId, selection.mk, selection.recipes);
   if (plan.blockedReason) {
-    view.clear();
     renderBlocked(summary, plan.blockedReason);
     return;
   }
-  const plant = buildChainPlant(plan);
+  let plant: Plant;
+  try {
+    plant = buildChainPlant(plan);
+  } catch (error) {
+    renderBlocked(summary, error instanceof Error ? error.message : "This chain cannot be laid out.");
+    return;
+  }
   const issues = layoutIssues(plant);
   if (issues.length > 0) {
-    view.clear();
     summary.textContent = issues.join(" ");
     return;
   }
@@ -96,59 +96,106 @@ function showChain(chainId: ChainId, mk: BeltMk): void {
   renderSummary(summary, plant);
 }
 
-function chooseProduct(productId: ProductId): void {
-  showChain(chainForProduct(productId, selection.byProduct), selectedMk());
-}
-
-function syncControls(chainId: ChainId): void {
-  const productId = productOf(chainId);
-  syncProduct(productId);
-  renderRecipeChoices(productId, chainId);
+function syncForm(): void {
+  const item = ITEMS[selection.itemId];
+  const picked = selection.recipes[selection.itemId];
+  const goal = (picked && RECIPES[picked]) || standardRecipe(selection.itemId);
+  title.textContent = item?.name ?? selection.itemId;
+  const inputs = goal?.inputs.map((stack) => itemName(stack.itemId)).join(" + ") ?? "";
+  lede.textContent = goal ? `${goal.name}. ${inputs} in. Press Generate after you change the item, alts, or belt.` : "Search for a part.";
+  document.title = `${title.textContent} — Satisfactory visualizer`;
+  search.value = item?.name ?? "";
   setMk(selection.mk);
+  renderAlts();
 }
 
-function syncProduct(productId: ProductId): void {
-  const radio = document.querySelector<HTMLInputElement>(`input[name="product"][value="${productId}"]`);
-  if (radio) radio.checked = true;
-}
-
-function renderRecipeChoices(productId: ProductId, selected: ChainId | null): void {
-  const product = PRODUCTS[productId];
-  recipesHost.replaceChildren();
-  if (product.chains.length < 2) {
-    recipeField.hidden = true;
-    return;
-  }
-  recipeField.hidden = false;
-  recipeLegend.textContent = product.legend;
-  for (const chainId of product.chains) {
+function renderAlts(): void {
+  const needle = altSearch.value.trim().toLowerCase();
+  const visible = alts.filter((alt) => {
+    if (altMode === "save" && !unlockedClasses.has(alt.className)) return false;
+    if (!needle) return true;
+    return `${alt.itemName} ${alt.name}`.toLowerCase().includes(needle);
+  });
+  altsHost.replaceChildren();
+  let lastItem = "";
+  for (const alt of visible) {
+    if (alt.itemId !== lastItem) {
+      lastItem = alt.itemId;
+      const heading = document.createElement("p");
+      heading.textContent = alt.itemName;
+      altsHost.append(heading);
+    }
     const input = document.createElement("input");
-    input.type = "radio";
-    input.name = "recipe";
-    input.value = chainId;
-    input.checked = chainId === selected;
+    input.type = "checkbox";
+    input.checked = selection.recipes[alt.itemId] === alt.id;
+    input.disabled = !alt.placeable;
     input.addEventListener("change", () => {
-      if (input.checked) showChain(chainId, selectedMk());
+      const recipes = { ...selection.recipes };
+      if (input.checked) recipes[alt.itemId] = alt.id;
+      else if (recipes[alt.itemId] === alt.id) delete recipes[alt.itemId];
+      selection = { ...selection, recipes };
+      persist();
+      renderAlts();
     });
+    const name = document.createElement("span");
+    name.textContent = alt.placeable ? alt.name : `${alt.name} (needs a later building)`;
     const label = document.createElement("label");
-    label.append(input, document.createTextNode(CHAINS[chainId].choiceLabel));
-    recipesHost.append(label);
+    label.className = "alt-row";
+    label.append(input, name);
+    altsHost.append(label);
+  }
+  if (visible.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "hint";
+    empty.textContent = altMode === "save" ? "No unlocked alts yet. Load a save, or switch to all alts." : "No alts match.";
+    altsHost.append(empty);
   }
 }
 
-function renderProducts(): void {
-  for (const productId of PRODUCT_ORDER) {
-    const product = PRODUCTS[productId];
-    const input = document.createElement("input");
-    input.type = "radio";
-    input.name = "product";
-    input.value = productId;
-    input.addEventListener("change", () => {
-      if (input.checked) chooseProduct(productId);
+let activeOption = -1;
+
+function openList(query: string): void {
+  const needle = query.trim().toLowerCase();
+  const matches = targets.filter((item) => item.name.toLowerCase().includes(needle)).slice(0, 80);
+  itemList.replaceChildren();
+  activeOption = -1;
+  for (const [index, item] of matches.entries()) {
+    const option = document.createElement("li");
+    option.id = `item-opt-${index}`;
+    option.setAttribute("role", "option");
+    option.textContent = item.selectable ? item.name : `${item.name} — not in this phase`;
+    option.setAttribute("aria-disabled", item.selectable ? "false" : "true");
+    option.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      if (!item.selectable) return;
+      chooseItem(item.id);
     });
-    const label = document.createElement("label");
-    label.append(input, document.createTextNode(product.name));
-    products.append(label);
+    itemList.append(option);
+  }
+  const open = matches.length > 0;
+  itemList.hidden = !open;
+  search.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+function chooseItem(itemId: string): void {
+  if (!supported.has(itemId)) return;
+  itemList.hidden = true;
+  search.setAttribute("aria-expanded", "false");
+  selection = { itemId, mk: selectedMk(), recipes: { ...selection.recipes } };
+  persist();
+  syncForm();
+}
+
+function moveActive(delta: number): void {
+  const options = [...itemList.querySelectorAll<HTMLElement>('[role="option"]')];
+  if (options.length === 0) return;
+  activeOption = (activeOption + delta + options.length) % options.length;
+  for (const [index, option] of options.entries()) {
+    option.setAttribute("aria-selected", index === activeOption ? "true" : "false");
+    if (index === activeOption) {
+      search.setAttribute("aria-activedescendant", option.id);
+      option.scrollIntoView({ block: "nearest" });
+    }
   }
 }
 
@@ -172,9 +219,7 @@ function renderSummary(host: HTMLElement, plant: Plant): void {
   }
   for (const [index, stage] of plan.stages.entries()) {
     const recipe = RECIPES[stage.recipeId];
-    const building = BUILDINGS[recipe.buildingId];
-    const noun = stage.machines === 1 ? building.name : `${building.name}s`;
-    lines.push(`count:${stage.machines} ${noun} · Floor ${index + 1}`);
+    lines.push(`count:${stage.machines} ${plural(buildingName(recipe.buildingId), stage.machines)} · Floor ${index + 1}`);
   }
   if (plan.limitNote) lines.push(plan.limitNote);
   for (const stage of plan.stages) {
@@ -182,19 +227,17 @@ function renderSummary(host: HTMLElement, plant: Plant): void {
   }
   lines.push(`Mk${plan.beltMk} belt · ${plan.beltPerMin} items/min on every line`);
   for (const stage of plan.stages) lines.push(...stageLines(stage));
-  for (let index = 0; index < plan.stages.length - 1; index += 1) {
-    const stage = plan.stages[index];
-    const next = plan.stages[index + 1];
-    if (!stage || !next) continue;
+  for (const stage of plan.stages) {
+    if (stage.drawnPerMin <= 0) continue;
     const recipe = RECIPES[stage.recipeId];
     const item = itemName(recipe.outputs[0]?.itemId ?? "");
-    const surplus = stage.outputPerMin - next.inputPerMin;
-    if (next.underfedNote) continue;
-    lines.push(
-      surplus > SURPLUS_EPSILON
-        ? `Surplus ${trim(surplus)} ${item} / min. Feed end: smart splitter, Any to the bank, Overflow out (to sink). Clocks stay at 100%.`
-        : `${item} balances the next machines. Clocks stay at 100%.`,
-    );
+    if (stage.surplusPerMin > SURPLUS_EPSILON) {
+      lines.push(
+        `Surplus ${trim(stage.surplusPerMin)} ${item} / min. Feed end: smart splitter, Any to the bank, Overflow out (to sink). Clocks stay at 100%.`,
+      );
+    } else if (Math.abs(stage.outputPerMin - stage.drawnPerMin) <= SURPLUS_EPSILON) {
+      lines.push(`${item} balances the next machines. Clocks stay at 100%.`);
+    }
   }
   const seen = new Set<string>();
   for (const stage of plan.stages) {
@@ -202,7 +245,10 @@ function renderSummary(host: HTMLElement, plant: Plant): void {
     seen.add(stage.recipeId);
     lines.push(cite(stage));
   }
-  lines.push("1 m foundations, 8 m grid. Floors are 3 wall-heights (12 m) apart.");
+  if (plan.stages.some((stage) => (RECIPES[stage.recipeId].inputs.length ?? 0) > 1)) {
+    lines.push("Input lanes step 1 m outward per height. The lowest lane is farthest from the machines.");
+  }
+  lines.push("Machines pack on a 1 m stride. Foundations stay 8×8. Floors are 3 wall-heights (12 m) apart.");
   lines.push("Walk the gaps between machines. The ramp is at the feed end.");
   for (const [index, line] of lines.entries()) {
     const p = document.createElement("p");
@@ -218,26 +264,31 @@ function renderSummary(host: HTMLElement, plant: Plant): void {
   }
 }
 
+function buildingName(buildingId: string): string {
+  if (!isBuildingId(buildingId)) throw new Error(`${buildingId} is not laid out.`);
+  return BUILDINGS[buildingId].name;
+}
+
 function stageLines(stage: StagePlan): string[] {
   const recipe = RECIPES[stage.recipeId];
-  const building = BUILDINGS[recipe.buildingId];
-  const input = recipe.inputs[0];
   const output = recipe.outputs[0];
-  const noun = stage.machines === 1 ? building.name : `${building.name}s`;
-  const lines = [`${stage.machines} ${noun} · ${recipe.name} · 100%`];
+  const lines = [`${stage.machines} ${plural(buildingName(recipe.buildingId), stage.machines)} · ${recipe.name} · 100%`];
   if (!stage.underfedNote) {
-    lines.push(
-      `${itemName(input?.itemId ?? "")} in ${trim(stage.inputPerMin)} / min → ${itemName(output?.itemId ?? "")} out ${trim(stage.outputPerMin)} / min`,
-    );
+    const inputs = recipe.inputs
+      .map((stack, index) => `${itemName(stack.itemId)} in ${trim(stage.inputsPerMin[index] ?? 0)} / min`)
+      .join(" + ");
+    lines.push(`${inputs} → ${itemName(output?.itemId ?? "")} out ${trim(stage.outputPerMin)} / min`);
   }
   return lines;
 }
 
 function cite(stage: StagePlan): string {
   const recipe = RECIPES[stage.recipeId];
-  const input = recipe.inputs[0];
+  const inputs = recipe.inputs
+    .map((stack) => `${stack.perCycle} × ${itemName(stack.itemId)} (${trim(stack.perMin)}/min)`)
+    .join(" + ");
   const output = recipe.outputs[0];
-  return `${recipe.name}: ${input?.perCycle ?? "?"} × ${itemName(input?.itemId ?? "")} (${trim(input?.perMin ?? 0)}/min) → ${output?.perCycle ?? "?"} × ${itemName(output?.itemId ?? "")} (${trim(output?.perMin ?? 0)}/min) in ${recipe.cycleSeconds} s.`;
+  return `${recipe.name}: ${inputs} → ${output?.perCycle ?? "?"} × ${itemName(output?.itemId ?? "")} (${trim(output?.perMin ?? 0)}/min) in ${recipe.cycleSeconds} s.`;
 }
 
 function itemName(itemId: string): string {
@@ -249,20 +300,82 @@ function isItemId(itemId: string): itemId is ItemId {
   return Object.prototype.hasOwnProperty.call(ITEMS, itemId);
 }
 
+function plural(name: string, count: number): string {
+  if (count === 1) return name;
+  if (name === "Foundry") return "Foundries";
+  return `${name}s`;
+}
+
 function trim(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
-renderProducts();
-demo.addEventListener("click", () => {
-  showChain("cast-screw", 3);
+search.addEventListener("focus", () => openList(search.value));
+search.addEventListener("input", () => openList(search.value));
+search.addEventListener("keydown", (event) => {
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    if (itemList.hidden) openList(search.value);
+    moveActive(1);
+  } else if (event.key === "ArrowUp") {
+    event.preventDefault();
+    moveActive(-1);
+  } else if (event.key === "Enter") {
+    const selectedOption = itemList.querySelector<HTMLElement>('[aria-selected="true"]');
+    const name = selectedOption?.textContent;
+    const item = targets.find((entry) => entry.name === name || `${entry.name} — not in this phase` === name);
+    if (item?.selectable) {
+      event.preventDefault();
+      chooseItem(item.id);
+    }
+  } else if (event.key === "Escape") {
+    itemList.hidden = true;
+    search.setAttribute("aria-expanded", "false");
+  }
+});
+search.addEventListener("blur", () => {
+  itemList.hidden = true;
+  search.setAttribute("aria-expanded", "false");
+  const item = ITEMS[selection.itemId];
+  if (item) search.value = item.name;
 });
 
 for (const input of document.querySelectorAll<HTMLInputElement>('input[name="mk"]')) {
   input.addEventListener("change", () => {
     if (!input.checked) return;
-    showChain(selection.chainId, selectedMk());
+    selection = { ...selection, mk: selectedMk() };
+    persist();
   });
 }
 
-showChain(selection.chainId, selection.mk);
+for (const input of document.querySelectorAll<HTMLInputElement>('input[name="alt-mode"]')) {
+  input.addEventListener("change", () => {
+    if (!input.checked) return;
+    altMode = input.value === "save" ? "save" : "all";
+    renderAlts();
+  });
+}
+
+altSearch.addEventListener("input", () => renderAlts());
+
+saveFile.addEventListener("change", () => {
+  const file = saveFile.files?.[0];
+  if (!file) return;
+  void file.arrayBuffer().then(async (bytes) => {
+    try {
+      unlockedClasses = await unlockedRecipeClasses(bytes);
+      altMode = "save";
+      const mode = document.querySelector<HTMLInputElement>('input[name="alt-mode"][value="save"]');
+      if (mode) mode.checked = true;
+      saveNote.textContent = `Save read in the browser. ${unlockedClasses.size} unlocked recipes. Nothing was uploaded.`;
+      renderAlts();
+    } catch (error) {
+      saveNote.textContent = error instanceof Error ? error.message : "That save could not be read.";
+    }
+  });
+});
+
+generateButton.addEventListener("click", () => showItem(selection));
+
+syncForm();
+showItem(selection);

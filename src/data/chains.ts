@@ -2,14 +2,21 @@ import { RECIPES, type RecipeId } from "./catalog";
 
 /**
  * One manifold floor per stage, ore at the bottom, product at the top.
- * Stages stay on smelter + constructor. Alts that need another building
- * (Coated Iron Plate, Steel Screws, Insulated Cable, …) are not listed.
+ * Phase 1 stages are smelter + constructor. Assembler and Foundry are
+ * machine builds: pick the machine, then which inputs join. This is not
+ * a catalog of every part those machines can make.
  *
  * Cable's constructor recipe is the same either way. The two cable chains
  * differ by which Wire recipe feeds them. With no saved choice, Cable
  * opens on copper wire. Iron Wire stays the other feed.
+ *
+ * TODO(oil): refineries, pipes, and closed loops are the next bound.
+ * Do not extend this wiring into fluids or aluminum.
  */
-export type ProductId = "screws" | "iron-plate" | "iron-rod" | "wire" | "cable";
+export type ProductId = "screws" | "iron-plate" | "iron-rod" | "wire" | "cable" | "assembler" | "foundry";
+
+/** Upstream stage index, or an external belt at the feed end. */
+export type InputSource = number | "feed";
 
 export interface ChainDef {
   id: string;
@@ -18,6 +25,22 @@ export interface ChainDef {
   choiceLabel: string;
   lede: string;
   stages: readonly RecipeId[];
+  /**
+   * Row id per stage. Required when one recipe is used twice.
+   * Defaults to the recipe id.
+   */
+  stageIds?: readonly string[];
+  /**
+   * Per stage, one source per recipe input, in recipe order.
+   * Defaults to a linear chain: stage 0 is a feed belt, every later stage takes the previous stage.
+   */
+  from?: readonly (readonly InputSource[])[];
+}
+
+export interface WiredStage {
+  id: string;
+  recipeId: RecipeId;
+  from: readonly InputSource[];
 }
 
 export const CHAINS = {
@@ -85,6 +108,36 @@ export const CHAINS = {
     lede: "Cable from Iron Wire. Iron ore to ingots, wire, then cable.",
     stages: ["iron-ingot", "iron-wire", "cable"],
   },
+  "foundry-steel": {
+    id: "foundry-steel",
+    productId: "foundry",
+    title: "Foundry",
+    choiceLabel: "Iron ore + Coal",
+    lede: "Foundry. Iron ore and coal arrive on two feed belts. The coal lane is 2 m higher and 1 m closer to the machines. One ingot belt leaves. Clocks stay at 100%.",
+    stages: ["steel-ingot"],
+    from: [["feed", "feed"]],
+  },
+  "foundry-alloy": {
+    id: "foundry-alloy",
+    productId: "foundry",
+    title: "Foundry",
+    choiceLabel: "Iron ore + Copper ore",
+    lede: "Foundry, Iron Alloy Ingot. Iron ore and copper ore use the same stair as coal and iron. Mk1 cannot hold one machine.",
+    stages: ["iron-alloy-ingot"],
+    from: [["feed", "feed"]],
+  },
+  // Plates and cast screws are paths that already exist. They join on the assembler.
+  // TODO: more joins are data. Do not add a parts catalog here.
+  "assembler-plates-screws": {
+    id: "assembler-plates-screws",
+    productId: "assembler",
+    title: "Assembler",
+    choiceLabel: "Plates + Cast screws",
+    lede: "Assembler. One line casts screws, one line makes plates, and both feed a single assembler row. The screw lane is higher and 1 m closer in. There is no conveyor lift between the two splitters.",
+    stages: ["iron-ingot", "iron-plate", "iron-ingot", "cast-screw", "reinforced-iron-plate"],
+    stageIds: ["plate-ingot", "iron-plate", "screw-ingot", "cast-screw", "reinforced-iron-plate"],
+    from: [["feed"], [0], ["feed"], [2], [1, 3]],
+  },
 } as const satisfies Record<string, ChainDef>;
 
 export type ChainId = keyof typeof CHAINS;
@@ -127,6 +180,18 @@ export const PRODUCTS: Record<ProductId, ProductDef> = {
     legend: "Wire chain",
     chains: ["cable-copper", "cable-iron"],
   },
+  assembler: {
+    id: "assembler",
+    name: "Assembler",
+    legend: "Inputs",
+    chains: ["assembler-plates-screws"],
+  },
+  foundry: {
+    id: "foundry",
+    name: "Foundry",
+    legend: "Inputs",
+    chains: ["foundry-steel", "foundry-alloy"],
+  },
 };
 
 export const PRODUCT_ORDER: readonly ProductId[] = [
@@ -135,7 +200,43 @@ export const PRODUCT_ORDER: readonly ProductId[] = [
   "iron-rod",
   "wire",
   "cable",
+  "assembler",
+  "foundry",
 ];
+
+export function wiredStages(chain: ChainDef): WiredStage[] {
+  const ids = chain.stageIds ?? chain.stages;
+  if (ids.length !== chain.stages.length) {
+    throw new Error(`${chain.id} stage ids do not match its stages.`);
+  }
+  if (new Set(ids).size !== ids.length) {
+    throw new Error(`${chain.id} repeats a stage id.`);
+  }
+  if (chain.from && chain.from.length !== chain.stages.length) {
+    throw new Error(`${chain.id} wiring length does not match its stages.`);
+  }
+  return chain.stages.map((recipeId, index) => {
+    const recipe = RECIPES[recipeId];
+    const from = chain.from?.[index] ?? (index === 0 ? (["feed"] as const) : ([index - 1] as const));
+    if (from.length !== recipe.inputs.length) {
+      throw new Error(`${chain.id} stage ${ids[index] ?? index} does not match ${recipe.name} inputs.`);
+    }
+    for (const source of from) {
+      if (source !== "feed" && (source < 0 || source >= index)) {
+        throw new Error(`${chain.id} stage ${ids[index] ?? index} reads a stage that is not upstream.`);
+      }
+    }
+    return { id: ids[index] ?? recipeId, recipeId, from };
+  });
+}
+
+export function isLinearWiring(wired: readonly WiredStage[]): boolean {
+  return wired.every((stage, index) => {
+    if (stage.from.length !== 1) return false;
+    const source = stage.from[0];
+    return index === 0 ? source === "feed" : source === index - 1;
+  });
+}
 
 export function isChainId(value: unknown): value is ChainId {
   return typeof value === "string" && Object.prototype.hasOwnProperty.call(CHAINS, value);

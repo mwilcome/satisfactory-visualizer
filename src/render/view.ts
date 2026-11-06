@@ -2,10 +2,11 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
-import { WALKWAY } from "../data/catalog";
 import {
+  ASSEMBLER_PARTS,
   BUFFER_PARTS,
   CONSTRUCTOR_PARTS,
+  FOUNDRY_PARTS,
   MERGER_PARTS,
   SMART_SPLITTER_PARTS,
   SMELTER_PARTS,
@@ -100,6 +101,8 @@ export class FactoryView {
     this.prototypes = new Map([
       ["smelter", groupFromParts(SMELTER_PARTS, this.materials)],
       ["constructor", groupFromParts(CONSTRUCTOR_PARTS, this.materials)],
+      ["assembler", groupFromParts(ASSEMBLER_PARTS, this.materials)],
+      ["foundry", groupFromParts(FOUNDRY_PARTS, this.materials)],
       ["splitter", groupFromParts(SPLITTER_PARTS, this.materials)],
       ["merger", groupFromParts(MERGER_PARTS, this.materials)],
       ["buffer", groupFromParts(BUFFER_PARTS, this.materials)],
@@ -426,15 +429,26 @@ function rampMesh(
   group.position.set((from.x + to.x) / 2, (from.y + to.y) / 2, from.z);
   group.rotation.z = Math.atan2(to.y - from.y, to.x - from.x);
 
-  if (to.y < WALKWAY.rise * 6) {
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.28, to.y - 1, 0.28), frameMat);
-    leg.position.set(to.x, (to.y + 1) / 2, to.z);
+  const legTo = storyWalkBelow(to.y);
+  if (legTo !== null && to.y - legTo > 0.4) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.28, to.y - legTo, 0.28), frameMat);
+    leg.position.set(to.x, (to.y + legTo) / 2, to.z);
     leg.castShadow = true;
     const parent = new THREE.Group();
     parent.add(group, leg);
     return parent;
   }
   return group;
+}
+
+/** Walk surfaces are 1 m, then every 12 m. Legs stop at the story under this point. */
+function storyWalkBelow(y: number): number | null {
+  const base = 1;
+  const pitch = 12;
+  if (Math.abs((y - base) / pitch - Math.round((y - base) / pitch)) < 1e-3) return null;
+  const steps = Math.floor((y - base - 1e-3) / pitch);
+  if (steps < 0) return null;
+  return base + steps * pitch;
 }
 
 function concreteTexture(): THREE.CanvasTexture {
