@@ -37,12 +37,17 @@ export class FactoryView {
   private readonly supportMat: THREE.MeshStandardMaterial;
   private readonly prototypes: Map<string, THREE.Group>;
   private plant: THREE.Group | null = null;
+  private highlight: THREE.Box3Helper | null = null;
+  private readonly host: HTMLElement;
   private readonly sun: THREE.DirectionalLight;
   private readonly raycaster = new THREE.Raycaster();
+  private readonly projected = new THREE.Vector3();
   private disposed = false;
   onPick: PickHandler | null = null;
+  onFrame: (() => void) | null = null;
 
   constructor(host: HTMLElement) {
+    this.host = host;
     const canvas = document.createElement("canvas");
     canvas.id = "factory-canvas";
     host.append(canvas);
@@ -144,6 +149,7 @@ export class FactoryView {
       if (this.disposed) return;
       requestAnimationFrame(tick);
       this.controls.update();
+      this.onFrame?.();
       this.renderer.render(this.scene, this.camera);
       this.labels.render(this.scene, this.camera);
     };
@@ -152,6 +158,32 @@ export class FactoryView {
 
   clear(): void {
     this.releasePlant();
+  }
+
+  /** Amber box around the machine. Returns a point above it for the card. */
+  focusMachine(solid: Solid | null): Vec3 | null {
+    this.clearHighlight();
+    if (!solid || !this.plant) return null;
+    const anchor = this.plant.children.find((child) => child.userData.pick === solid);
+    if (!anchor) return null;
+    const box = new THREE.Box3().setFromObject(anchor).expandByScalar(0.3);
+    const helper = new THREE.Box3Helper(box, 0xf0a202);
+    this.scene.add(helper);
+    this.highlight = helper;
+    const center = box.getCenter(new THREE.Vector3());
+    return { x: center.x, y: box.max.y, z: center.z };
+  }
+
+  /** Host-relative pixels. visible is false when the point is outside the clip volume. */
+  project(point: Vec3): { x: number; y: number; visible: boolean } {
+    this.projected.set(point.x, point.y, point.z).project(this.camera);
+    const width = this.host.clientWidth || 1;
+    const height = this.host.clientHeight || 1;
+    return {
+      x: (this.projected.x * 0.5 + 0.5) * width,
+      y: (-this.projected.y * 0.5 + 0.5) * height,
+      visible: this.projected.z >= -1 && this.projected.z <= 1,
+    };
   }
 
   show(plant: Plant): void {
@@ -170,7 +202,21 @@ export class FactoryView {
     this.frame(root);
   }
 
+  private clearHighlight(): void {
+    if (!this.highlight) return;
+    this.scene.remove(this.highlight);
+    this.highlight.geometry.dispose();
+    const material = this.highlight.material;
+    if (Array.isArray(material)) {
+      for (const item of material) item.dispose();
+    } else {
+      material.dispose();
+    }
+    this.highlight = null;
+  }
+
   private releasePlant(): void {
+    this.clearHighlight();
     if (!this.plant) return;
     this.plant.traverse((obj) => {
       if (obj instanceof CSS2DObject) obj.element.remove();

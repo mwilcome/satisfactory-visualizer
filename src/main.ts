@@ -1,7 +1,7 @@
-import { BUILDINGS, ITEMS, RECIPES, isBeltMk, isBuildingId, type BeltMk, type ItemId } from "./data/catalog";
+import { BUILDINGS, FOUNDATION_SIZE_M, ITEMS, RECIPES, isBeltMk, isBuildingId, type BeltMk, type ItemId } from "./data/catalog";
 import { layoutIssues } from "./layout/invariants";
 import { buildChainPlant } from "./layout/plant";
-import type { Plant, Solid } from "./layout/types";
+import type { Plant, Solid, Vec3 } from "./layout/types";
 import { FactoryView } from "./render/view";
 import { SURPLUS_EPSILON, type StagePlan } from "./solve/chain";
 import { altEntries, pickerItems, solveTarget, standardRecipe, supportedItemIds } from "./solve/target";
@@ -9,6 +9,7 @@ import { STORAGE_KEY, parseSelection, serializeSelection, type Selection } from 
 import { unlockedRecipeClasses } from "./ui/save-alts";
 
 const viewportEl = document.querySelector<HTMLElement>("#viewport");
+const floorsEl = document.querySelector<HTMLElement>("#floors");
 const detailEl = document.querySelector<HTMLElement>("#detail");
 const summaryEl = document.querySelector<HTMLElement>("#summary");
 const titleEl = document.querySelector<HTMLElement>("#title");
@@ -25,6 +26,7 @@ const generateEl = document.querySelector<HTMLButtonElement>("#generate");
 
 if (
   !viewportEl ||
+  !floorsEl ||
   !detailEl ||
   !summaryEl ||
   !titleEl ||
@@ -43,6 +45,7 @@ if (
 }
 
 const viewport: HTMLElement = viewportEl;
+const floors: HTMLElement = floorsEl;
 const detail: HTMLElement = detailEl;
 const summary: HTMLElement = summaryEl;
 const title: HTMLElement = titleEl;
@@ -61,7 +64,13 @@ const supported = supportedItemIds();
 const alts = altEntries();
 const view = new FactoryView(viewport);
 let shown: Plant | null = null;
+let cardAnchor: Vec3 | null = null;
+let cardDragged = false;
 view.onPick = (solid) => renderDetail(solid);
+view.onFrame = () => {
+  if (!cardAnchor || cardDragged || detail.hidden) return;
+  moveCardBeside(cardAnchor);
+};
 
 let selection = parseSelection(localStorage.getItem(STORAGE_KEY));
 let altMode: "all" | "save" = "all";
@@ -105,13 +114,21 @@ function showItem(next: Selection): void {
   }
   view.show(plant);
   shown = plant;
+  cardAnchor = null;
+  cardDragged = false;
   detail.hidden = true;
+  detail.style.visibility = "";
+  renderFloors(floors, plant);
   renderSummary(summary, plant);
 }
 
 function renderDetail(solid: Solid | null): void {
   if (!solid || solid.kind !== "machine" || !shown) {
+    cardAnchor = null;
+    cardDragged = false;
     detail.hidden = true;
+    detail.style.visibility = "";
+    view.focusMachine(null);
     return;
   }
   const recipe = solid.recipeId ? RECIPES[solid.recipeId] : undefined;
@@ -120,9 +137,12 @@ function renderDetail(solid: Solid | null): void {
   const output = recipe?.outputs[0];
   const outputName = output ? itemName(output.itemId) : "Output";
   detail.replaceChildren();
+  const grip = document.createElement("header");
+  grip.dataset.grip = "true";
   const heading = document.createElement("h2");
   heading.textContent = outputName;
-  detail.append(heading);
+  grip.append(heading);
+  detail.append(grip);
   const where = document.createElement("p");
   const building = recipe ? buildingName(recipe.buildingId) : "Machine";
   where.textContent = floor > 0 ? `${building} · Floor ${floor}` : building;
@@ -146,8 +166,55 @@ function renderDetail(solid: Solid | null): void {
       detail.append(out);
     }
   }
+  cardDragged = false;
+  cardAnchor = view.focusMachine(solid);
   detail.hidden = false;
+  detail.style.visibility = "";
+  if (cardAnchor) moveCardBeside(cardAnchor);
 }
+
+function moveCardBeside(anchor: Vec3): void {
+  const projected = view.project(anchor);
+  if (!projected.visible) {
+    detail.style.visibility = "hidden";
+    return;
+  }
+  detail.style.visibility = "visible";
+  const width = detail.offsetWidth || 280;
+  const height = detail.offsetHeight || 80;
+  let left = projected.x + 18;
+  let top = projected.y - 8;
+  if (left + width > viewport.clientWidth - 8) left = projected.x - width - 18;
+  placeCard(left, top, width, height);
+}
+
+function placeCard(left: number, top: number, width = detail.offsetWidth || 280, height = detail.offsetHeight || 80): void {
+  const x = Math.max(8, Math.min(left, viewport.clientWidth - width - 8));
+  const y = Math.max(8, Math.min(top, viewport.clientHeight - height - 8));
+  detail.style.left = `${x}px`;
+  detail.style.top = `${y}px`;
+}
+
+detail.addEventListener("pointerdown", (event) => {
+  const target = event.target;
+  if (!(target instanceof Element) || !target.closest("[data-grip]")) return;
+  cardDragged = true;
+  const host = viewport.getBoundingClientRect();
+  const rect = detail.getBoundingClientRect();
+  const offsetX = event.clientX - rect.left;
+  const offsetY = event.clientY - rect.top;
+  detail.setPointerCapture(event.pointerId);
+  const move = (ev: PointerEvent) => {
+    placeCard(ev.clientX - host.left - offsetX, ev.clientY - host.top - offsetY);
+  };
+  const up = (ev: PointerEvent) => {
+    detail.removeEventListener("pointermove", move);
+    detail.removeEventListener("pointerup", up);
+    if (detail.hasPointerCapture(ev.pointerId)) detail.releasePointerCapture(ev.pointerId);
+  };
+  detail.addEventListener("pointermove", move);
+  detail.addEventListener("pointerup", up);
+});
 
 function refreshBeltMarks(): void {
   for (const mk of [1, 2, 3, 4] as const) {
@@ -298,10 +365,6 @@ function renderSummary(host: HTMLElement, plant: Plant): void {
   if (goal) {
     lines.push(`${trim(goal.outputPerMin)} ${itemName(plan.goalItemId)} / min`);
   }
-  for (const [index, stage] of plan.stages.entries()) {
-    const recipe = RECIPES[stage.recipeId];
-    lines.push(`count:${stage.machines} ${plural(buildingName(recipe.buildingId), stage.machines)} · Floor ${index + 1}`);
-  }
   if (plan.limitNote) lines.push(plan.limitNote);
   for (const stage of plan.stages) {
     if (stage.manifoldNote) lines.push(stage.manifoldNote);
@@ -346,15 +409,70 @@ function renderSummary(host: HTMLElement, plant: Plant): void {
   for (const [index, line] of lines.entries()) {
     const p = document.createElement("p");
     if (index === 0) p.className = "stat";
-    else if (line.startsWith("count:")) {
-      p.className = "counts";
-      p.textContent = line.slice("count:".length);
-      host.append(p);
-      continue;
-    } else if (line.includes("is receiving")) p.className = "warn";
+    else if (line.includes("is receiving")) p.className = "warn";
     p.textContent = line;
     host.append(p);
   }
+}
+
+function renderFloors(host: HTMLElement, plant: Plant): void {
+  host.replaceChildren();
+  const goal = plant.plan.stages[plant.plan.stages.length - 1];
+  if (goal) {
+    const rate = document.createElement("p");
+    rate.className = "floors-rate";
+    rate.textContent = `${trim(goal.outputPerMin)} ${itemName(plant.plan.goalItemId)} / min`;
+    host.append(rate);
+  }
+  for (const [index, stage] of plant.plan.stages.entries()) {
+    const recipe = RECIPES[stage.recipeId];
+    const name = buildingName(recipe.buildingId);
+    const counts = machinesPerRow(plant, stage.stageId);
+    const total = counts.reduce((sum, count) => sum + count, 0) || stage.machines;
+    const machines = counts.length > 1 ? `${counts.join(" + ")} ${plural(name, total)}` : `${total} ${plural(name, total)}`;
+    const span = foundationSpan(plant, plant.floors[index]?.id ?? stage.stageId);
+    const line = document.createElement("p");
+    line.textContent = `Floor ${index + 1} · ${machines} · ${counts.length > 1 ? "two rows" : "one row"} · ${span.x} × ${span.z} foundations`;
+    host.append(line);
+  }
+  const note = document.createElement("p");
+  note.className = "floors-note";
+  note.textContent = "The foundation size is the whole slab, including the feed apron.";
+  host.append(note);
+  host.hidden = false;
+}
+
+function machinesPerRow(plant: Plant, stageId: string): number[] {
+  let first = 0;
+  let second = 0;
+  for (const solid of plant.solids) {
+    if (solid.kind !== "machine" || solid.rowId !== stageId) continue;
+    if ((solid.rowIndex ?? 0) >= 100) second += 1;
+    else first += 1;
+  }
+  if (second > 0) return [first, second];
+  return [first];
+}
+
+function foundationSpan(plant: Plant, floorId: string): { x: number; z: number } {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  let count = 0;
+  for (const solid of plant.solids) {
+    if (solid.kind !== "foundation" || solid.floorId !== floorId) continue;
+    count += 1;
+    minX = Math.min(minX, solid.base.x);
+    maxX = Math.max(maxX, solid.base.x);
+    minZ = Math.min(minZ, solid.base.z);
+    maxZ = Math.max(maxZ, solid.base.z);
+  }
+  if (count === 0) return { x: 0, z: 0 };
+  return {
+    x: Math.round((maxX - minX) / FOUNDATION_SIZE_M) + 1,
+    z: Math.round((maxZ - minZ) / FOUNDATION_SIZE_M) + 1,
+  };
 }
 
 function buildingName(buildingId: string): string {
