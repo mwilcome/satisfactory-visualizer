@@ -2,7 +2,7 @@ import { BUILDINGS, FOUNDATION_SIZE_M, ITEMS, RECIPES, isBeltMk, isBuildingId, t
 import { layoutIssues } from "./layout/invariants";
 import { buildChainPlant } from "./layout/plant";
 import type { Plant, Solid, Vec3 } from "./layout/types";
-import { FactoryView, isLabelLayer } from "./render/view";
+import { FactoryView, LABEL_LAYERS, isLabelLayer } from "./render/view";
 import { SURPLUS_EPSILON, type StagePlan } from "./solve/chain";
 import { altEntries, pickerItems, solveTarget, standardRecipe, supportedItemIds } from "./solve/target";
 import { STORAGE_KEY, parseSelection, serializeSelection, type Selection } from "./ui/selection";
@@ -12,6 +12,9 @@ const viewportEl = document.querySelector<HTMLElement>("#viewport");
 const floorsEl = document.querySelector<HTMLElement>("#floors");
 const detailEl = document.querySelector<HTMLElement>("#detail");
 const layersEl = document.querySelector<HTMLElement>("#layers");
+const labelsToggleEl = document.querySelector<HTMLInputElement>("#labels-toggle");
+const labelsMoreEl = document.querySelector<HTMLButtonElement>("#labels-more");
+const labelGroupsEl = document.querySelector<HTMLElement>("#label-groups");
 const summaryEl = document.querySelector<HTMLElement>("#summary");
 const titleEl = document.querySelector<HTMLElement>("#title");
 const ledeEl = document.querySelector<HTMLElement>("#lede");
@@ -29,6 +32,9 @@ if (
   !floorsEl ||
   !detailEl ||
   !layersEl ||
+  !labelsToggleEl ||
+  !labelsMoreEl ||
+  !labelGroupsEl ||
   !summaryEl ||
   !titleEl ||
   !ledeEl ||
@@ -48,6 +54,9 @@ const viewport: HTMLElement = viewportEl;
 const floors: HTMLElement = floorsEl;
 const detail: HTMLElement = detailEl;
 const layers: HTMLElement = layersEl;
+const labelsToggle: HTMLInputElement = labelsToggleEl;
+const labelsMore: HTMLButtonElement = labelsMoreEl;
+const labelGroups: HTMLElement = labelGroupsEl;
 const summary: HTMLElement = summaryEl;
 const title: HTMLElement = titleEl;
 const lede: HTMLElement = ledeEl;
@@ -69,6 +78,7 @@ let cardDragged = false;
 let openMachineId: string | null = null;
 let floorsOn = true;
 let cardOn = true;
+let labelsOn = false;
 let rebuildTimer = 0;
 view.onPick = (solid) => renderDetail(solid);
 view.onFrame = () => {
@@ -469,6 +479,25 @@ function renderFloors(host: HTMLElement, plant: Plant): void {
   host.hidden = !floorsOn;
 }
 
+function applyWorldLabels(): void {
+  for (const layer of LABEL_LAYERS) {
+    const input = labelGroups.querySelector<HTMLInputElement>(`input[data-layer="${layer}"]`);
+    view.setLabelLayer(layer, labelsOn && input?.checked === true);
+  }
+}
+
+labelsToggle.addEventListener("change", () => {
+  labelsOn = labelsToggle.checked;
+  applyWorldLabels();
+});
+
+labelsMore.addEventListener("click", () => {
+  const open = labelsMore.getAttribute("aria-expanded") === "true";
+  labelsMore.setAttribute("aria-expanded", open ? "false" : "true");
+  labelsMore.textContent = open ? "▾" : "▴";
+  labelGroups.hidden = open;
+});
+
 layers.addEventListener("change", (event) => {
   const input = event.target;
   if (!(input instanceof HTMLInputElement) || !input.dataset.layer) return;
@@ -489,7 +518,7 @@ layers.addEventListener("change", (event) => {
     moveCardBeside(cardAnchor);
     return;
   }
-  if (isLabelLayer(layer)) view.setLabelLayer(layer, input.checked);
+  if (isLabelLayer(layer)) applyWorldLabels();
 });
 
 function machinesPerRow(plant: Plant, stageId: string): number[] {

@@ -60,7 +60,7 @@ export class FactoryView {
   private readonly raycaster = new THREE.Raycaster();
   private readonly projected = new THREE.Vector3();
   private disposed = false;
-  private readonly labelShown = new Map<LabelLayer, boolean>(LABEL_LAYERS.map((layer) => [layer, true]));
+  private readonly labelShown = new Map<LabelLayer, boolean>(LABEL_LAYERS.map((layer) => [layer, false]));
   onPick: PickHandler | null = null;
   onFrame: (() => void) | null = null;
 

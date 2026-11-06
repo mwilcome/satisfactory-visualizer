@@ -44,8 +44,9 @@ body {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
+  align-items: center;
   gap: 4px;
-  max-width: min(460px, calc(100% - 24px));
+  max-width: min(320px, calc(100% - 24px));
 }
 
 #layers span {
@@ -56,7 +57,8 @@ body {
   text-shadow: 0 1px 2px rgba(22, 24, 26, 0.8);
 }
 
-#layers label {
+#layers label,
+#labels-more {
   display: flex;
   gap: 6px;
   align-items: center;
@@ -64,18 +66,34 @@ body {
   background: rgba(22, 24, 26, 0.9);
   border: 1px solid rgba(244, 239, 228, 0.2);
   color: var(--ink);
-  font-size: 12px;
+  font: 600 12px/1 "Segoe UI", sans-serif;
   cursor: pointer;
 }
 
-#layers label:has(input:checked) {
-  background: var(--amber);
-  color: var(--amber-ink);
+#layers label:has(input:checked),
+#labels-more[aria-expanded="true"] {
   border-color: var(--amber);
 }
 
 #layers input {
   margin: 0;
+  accent-color: var(--amber);
+}
+
+#labels-more {
+  padding: 4px 7px;
+}
+
+#label-groups {
+  flex: 1 0 100%;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+#label-groups[hidden] {
+  display: none;
 }
 
 #floors {
