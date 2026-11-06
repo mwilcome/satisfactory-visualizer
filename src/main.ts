@@ -1,11 +1,12 @@
-import { BUILDINGS, ITEMS, RECIPES, isBeltMk, type BeltMk, type ItemId } from "./data/catalog";
+import { BUILDINGS, ITEMS, RECIPES, isBeltMk, isBuildingId, type BeltMk, type ItemId } from "./data/catalog";
 import { layoutIssues } from "./layout/invariants";
 import { buildChainPlant } from "./layout/plant";
 import type { Plant } from "./layout/types";
 import { FactoryView } from "./render/view";
 import { SURPLUS_EPSILON, type StagePlan } from "./solve/chain";
-import { canLayOut, recipeChoices, selectableItems, solveTarget, standardRecipe } from "./solve/target";
+import { altEntries, pickerItems, solveTarget, standardRecipe, supportedItemIds } from "./solve/target";
 import { STORAGE_KEY, parseSelection, serializeSelection, type Selection } from "./ui/selection";
+import { unlockedRecipeClasses } from "./ui/save-alts";
 
 const viewportEl = document.querySelector<HTMLElement>("#viewport");
 const summaryEl = document.querySelector<HTMLElement>("#summary");
@@ -13,10 +14,25 @@ const titleEl = document.querySelector<HTMLElement>("#title");
 const ledeEl = document.querySelector<HTMLElement>("#lede");
 const searchEl = document.querySelector<HTMLInputElement>("#item-search");
 const listEl = document.querySelector<HTMLUListElement>("#item-list");
-const recipeFieldEl = document.querySelector<HTMLElement>("#recipe-field");
-const recipesEl = document.querySelector<HTMLElement>("#recipes");
+const altsEl = document.querySelector<HTMLElement>("#alts");
+const altSearchEl = document.querySelector<HTMLInputElement>("#alt-search");
+const saveFileEl = document.querySelector<HTMLInputElement>("#save-file");
+const saveNoteEl = document.querySelector<HTMLElement>("#save-note");
+const generateEl = document.querySelector<HTMLButtonElement>("#generate");
 
-if (!viewportEl || !summaryEl || !titleEl || !ledeEl || !searchEl || !listEl || !recipeFieldEl || !recipesEl) {
+if (
+  !viewportEl ||
+  !summaryEl ||
+  !titleEl ||
+  !ledeEl ||
+  !searchEl ||
+  !listEl ||
+  !altsEl ||
+  !altSearchEl ||
+  !saveFileEl ||
+  !saveNoteEl ||
+  !generateEl
+) {
   throw new Error("App shell is missing.");
 }
 
@@ -26,12 +42,19 @@ const title: HTMLElement = titleEl;
 const lede: HTMLElement = ledeEl;
 const search: HTMLInputElement = searchEl;
 const itemList: HTMLUListElement = listEl;
-const recipeField: HTMLElement = recipeFieldEl;
-const recipesHost: HTMLElement = recipesEl;
-const targets = selectableItems();
+const altsHost: HTMLElement = altsEl;
+const altSearch: HTMLInputElement = altSearchEl;
+const saveFile: HTMLInputElement = saveFileEl;
+const saveNote: HTMLElement = saveNoteEl;
+const generateButton: HTMLButtonElement = generateEl;
+const targets = pickerItems();
+const supported = supportedItemIds();
+const alts = altEntries();
 const view = new FactoryView(viewport);
 
 let selection = parseSelection(localStorage.getItem(STORAGE_KEY));
+let altMode: "all" | "save" = "all";
+let unlockedClasses = new Set<string>();
 
 function persist(): void {
   localStorage.setItem(STORAGE_KEY, serializeSelection(selection));
@@ -51,27 +74,21 @@ function setMk(mk: BeltMk): void {
 function showItem(next: Selection): void {
   selection = next;
   persist();
-  const item = ITEMS[selection.itemId];
-  const picked = selection.recipes[selection.itemId];
-  const goal = (picked && RECIPES[picked]) || standardRecipe(selection.itemId);
-  title.textContent = item?.name ?? selection.itemId;
-  const inputs = goal?.inputs.map((stack) => itemName(stack.itemId)).join(" + ") ?? "";
-  lede.textContent = goal ? `${goal.name}. ${inputs} in. The belt sets the rate.` : "Search for a part.";
-  document.title = `${title.textContent} — Satisfactory visualizer`;
-  search.value = item?.name ?? "";
-  renderRecipeChoices();
-  setMk(selection.mk);
-
+  syncForm();
   const plan = solveTarget(selection.itemId, selection.mk, selection.recipes);
   if (plan.blockedReason) {
-    view.clear();
     renderBlocked(summary, plan.blockedReason);
     return;
   }
-  const plant = buildChainPlant(plan);
+  let plant: Plant;
+  try {
+    plant = buildChainPlant(plan);
+  } catch (error) {
+    renderBlocked(summary, error instanceof Error ? error.message : "This chain cannot be laid out.");
+    return;
+  }
   const issues = layoutIssues(plant);
   if (issues.length > 0) {
-    view.clear();
     summary.textContent = issues.join(" ");
     return;
   }
@@ -79,45 +96,60 @@ function showItem(next: Selection): void {
   renderSummary(summary, plant);
 }
 
-function renderRecipeChoices(): void {
-  const groups = recipeChoices(selection.itemId, selection.recipes);
-  recipesHost.replaceChildren();
-  for (const group of groups) {
-    const block = document.createElement("div");
-    block.className = "recipe-group";
-    const heading = document.createElement("p");
-    heading.textContent = group.itemName;
-    const marks = document.createElement("div");
-    marks.className = "marks col";
-    marks.setAttribute("role", "radiogroup");
-    marks.setAttribute("aria-label", group.itemName);
-    const options = group.options.filter(
-      (option) =>
-        option.id === group.selectedId ||
-        canLayOut(selection.itemId, { ...selection.recipes, [group.itemId]: option.id }),
-    );
-    if (options.length < 2) continue;
-    for (const option of options) {
-      const input = document.createElement("input");
-      input.type = "radio";
-      input.name = `recipe-${group.itemId}`;
-      input.value = option.id;
-      input.checked = option.id === group.selectedId;
-      input.addEventListener("change", () => {
-        if (!input.checked) return;
-        showItem({
-          ...selection,
-          recipes: { ...selection.recipes, [group.itemId]: option.id },
-        });
-      });
-      const label = document.createElement("label");
-      label.append(input, document.createTextNode(option.alternate ? `${option.name} (alternate)` : option.name));
-      marks.append(label);
+function syncForm(): void {
+  const item = ITEMS[selection.itemId];
+  const picked = selection.recipes[selection.itemId];
+  const goal = (picked && RECIPES[picked]) || standardRecipe(selection.itemId);
+  title.textContent = item?.name ?? selection.itemId;
+  const inputs = goal?.inputs.map((stack) => itemName(stack.itemId)).join(" + ") ?? "";
+  lede.textContent = goal ? `${goal.name}. ${inputs} in. Press Generate after you change the item, alts, or belt.` : "Search for a part.";
+  document.title = `${title.textContent} — Satisfactory visualizer`;
+  search.value = item?.name ?? "";
+  setMk(selection.mk);
+  renderAlts();
+}
+
+function renderAlts(): void {
+  const needle = altSearch.value.trim().toLowerCase();
+  const visible = alts.filter((alt) => {
+    if (altMode === "save" && !unlockedClasses.has(alt.className)) return false;
+    if (!needle) return true;
+    return `${alt.itemName} ${alt.name}`.toLowerCase().includes(needle);
+  });
+  altsHost.replaceChildren();
+  let lastItem = "";
+  for (const alt of visible) {
+    if (alt.itemId !== lastItem) {
+      lastItem = alt.itemId;
+      const heading = document.createElement("p");
+      heading.textContent = alt.itemName;
+      altsHost.append(heading);
     }
-    block.append(heading, marks);
-    recipesHost.append(block);
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = selection.recipes[alt.itemId] === alt.id;
+    input.disabled = !alt.placeable;
+    input.addEventListener("change", () => {
+      const recipes = { ...selection.recipes };
+      if (input.checked) recipes[alt.itemId] = alt.id;
+      else if (recipes[alt.itemId] === alt.id) delete recipes[alt.itemId];
+      selection = { ...selection, recipes };
+      persist();
+      renderAlts();
+    });
+    const name = document.createElement("span");
+    name.textContent = alt.placeable ? alt.name : `${alt.name} (needs a later building)`;
+    const label = document.createElement("label");
+    label.className = "alt-row";
+    label.append(input, name);
+    altsHost.append(label);
   }
-  recipeField.hidden = recipesHost.childElementCount === 0;
+  if (visible.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "hint";
+    empty.textContent = altMode === "save" ? "No unlocked alts yet. Load a save, or switch to all alts." : "No alts match.";
+    altsHost.append(empty);
+  }
 }
 
 let activeOption = -1;
@@ -131,9 +163,11 @@ function openList(query: string): void {
     const option = document.createElement("li");
     option.id = `item-opt-${index}`;
     option.setAttribute("role", "option");
-    option.textContent = item.name;
+    option.textContent = item.selectable ? item.name : `${item.name} — not in this phase`;
+    option.setAttribute("aria-disabled", item.selectable ? "false" : "true");
     option.addEventListener("mousedown", (event) => {
       event.preventDefault();
+      if (!item.selectable) return;
       chooseItem(item.id);
     });
     itemList.append(option);
@@ -144,9 +178,12 @@ function openList(query: string): void {
 }
 
 function chooseItem(itemId: string): void {
+  if (!supported.has(itemId)) return;
   itemList.hidden = true;
   search.setAttribute("aria-expanded", "false");
-  showItem({ itemId, mk: selectedMk(), recipes: { ...selection.recipes } });
+  selection = { itemId, mk: selectedMk(), recipes: { ...selection.recipes } };
+  persist();
+  syncForm();
 }
 
 function moveActive(delta: number): void {
@@ -182,8 +219,7 @@ function renderSummary(host: HTMLElement, plant: Plant): void {
   }
   for (const [index, stage] of plan.stages.entries()) {
     const recipe = RECIPES[stage.recipeId];
-    const building = BUILDINGS[recipe.buildingId];
-    lines.push(`count:${stage.machines} ${plural(building.name, stage.machines)} · Floor ${index + 1}`);
+    lines.push(`count:${stage.machines} ${plural(buildingName(recipe.buildingId), stage.machines)} · Floor ${index + 1}`);
   }
   if (plan.limitNote) lines.push(plan.limitNote);
   for (const stage of plan.stages) {
@@ -212,7 +248,7 @@ function renderSummary(host: HTMLElement, plant: Plant): void {
   if (plan.stages.some((stage) => (RECIPES[stage.recipeId].inputs.length ?? 0) > 1)) {
     lines.push("Input lanes step 1 m outward per height. The lowest lane is farthest from the machines.");
   }
-  lines.push("1 m foundations, 8 m grid. Floors are 3 wall-heights (12 m) apart.");
+  lines.push("Machines pack on a 1 m stride. Foundations stay 8×8. Floors are 3 wall-heights (12 m) apart.");
   lines.push("Walk the gaps between machines. The ramp is at the feed end.");
   for (const [index, line] of lines.entries()) {
     const p = document.createElement("p");
@@ -228,11 +264,15 @@ function renderSummary(host: HTMLElement, plant: Plant): void {
   }
 }
 
+function buildingName(buildingId: string): string {
+  if (!isBuildingId(buildingId)) throw new Error(`${buildingId} is not laid out.`);
+  return BUILDINGS[buildingId].name;
+}
+
 function stageLines(stage: StagePlan): string[] {
   const recipe = RECIPES[stage.recipeId];
-  const building = BUILDINGS[recipe.buildingId];
   const output = recipe.outputs[0];
-  const lines = [`${stage.machines} ${plural(building.name, stage.machines)} · ${recipe.name} · 100%`];
+  const lines = [`${stage.machines} ${plural(buildingName(recipe.buildingId), stage.machines)} · ${recipe.name} · 100%`];
   if (!stage.underfedNote) {
     const inputs = recipe.inputs
       .map((stack, index) => `${itemName(stack.itemId)} in ${trim(stage.inputsPerMin[index] ?? 0)} / min`)
@@ -283,8 +323,8 @@ search.addEventListener("keydown", (event) => {
   } else if (event.key === "Enter") {
     const selectedOption = itemList.querySelector<HTMLElement>('[aria-selected="true"]');
     const name = selectedOption?.textContent;
-    const item = targets.find((entry) => entry.name === name);
-    if (item) {
+    const item = targets.find((entry) => entry.name === name || `${entry.name} — not in this phase` === name);
+    if (item?.selectable) {
       event.preventDefault();
       chooseItem(item.id);
     }
@@ -303,8 +343,39 @@ search.addEventListener("blur", () => {
 for (const input of document.querySelectorAll<HTMLInputElement>('input[name="mk"]')) {
   input.addEventListener("change", () => {
     if (!input.checked) return;
-    showItem({ ...selection, mk: selectedMk() });
+    selection = { ...selection, mk: selectedMk() };
+    persist();
   });
 }
 
+for (const input of document.querySelectorAll<HTMLInputElement>('input[name="alt-mode"]')) {
+  input.addEventListener("change", () => {
+    if (!input.checked) return;
+    altMode = input.value === "save" ? "save" : "all";
+    renderAlts();
+  });
+}
+
+altSearch.addEventListener("input", () => renderAlts());
+
+saveFile.addEventListener("change", () => {
+  const file = saveFile.files?.[0];
+  if (!file) return;
+  void file.arrayBuffer().then(async (bytes) => {
+    try {
+      unlockedClasses = await unlockedRecipeClasses(bytes);
+      altMode = "save";
+      const mode = document.querySelector<HTMLInputElement>('input[name="alt-mode"][value="save"]');
+      if (mode) mode.checked = true;
+      saveNote.textContent = `Save read in the browser. ${unlockedClasses.size} unlocked recipes. Nothing was uploaded.`;
+      renderAlts();
+    } catch (error) {
+      saveNote.textContent = error instanceof Error ? error.message : "That save could not be read.";
+    }
+  });
+});
+
+generateButton.addEventListener("click", () => showItem(selection));
+
+syncForm();
 showItem(selection);

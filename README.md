@@ -13,7 +13,9 @@ npm run dev
 
 ## Happy path
 
-Open the app. The first visit shows Screws at Mk3 using Cast Screws. Search any Smelter, Constructor, Foundry, or Assembler part, pick a recipe when there is an alternate, and set the belt. The belt mark is the rate. Machines follow the recipe. Cast Screws, as a reference:
+Open the app. The first visit builds Screws at Mk3 using Cast Screws. After that, pick an item, alt recipes, and a belt mark, then press Generate. The plant rebuilds only then. Every item in the pinned snapshot is listed. An item can be chosen when some whole chain uses only Smelters, Constructors, Foundries, and Assemblers, with raw resources on input belts. The rest stay listed and cannot be selected. An alt that needs a later building stays listed and cannot be turned on.
+
+Alt recipes replace the default recipe for that item. The list is the full snapshot, or the alts unlocked in a save. The `.sav` file is parsed in the browser and is not uploaded. The belt mark is the rate. Machines follow the recipe and stay at 100%. Cast Screws, as a reference:
 
 | Mark | Belt | Constructors | Smelters | Screws |
 | --- | --- | --- | --- | --- |
@@ -26,7 +28,7 @@ Every line uses the mark you picked. A manifold is never a mix of marks. On Cast
 
 ## Recipes
 
-Checked against satisfactory.wiki.gg at 100% clock. The item list is every part made by a Smelter, Constructor, Foundry, or Assembler. Assembler and Foundry show up when a recipe uses them. Oil, pipes, and other buildings are not in this set.
+Recipes come from a pinned [SatisfactoryTools](https://github.com/greeny/SatisfactoryTools) `dev` snapshot, commit `2bd16469` (2026-02-02). That is after 1.0 and before the June 2026 1.2 docs export, so recipes added after February 2026 are not in this build. Rates below are the 100% clock values from that snapshot.
 
 - **Iron Ingot** — Smelter, 2 s. 1 iron ore (30/min) → 1 iron ingot (30/min).
 - **Copper Ingot** — Smelter, 2 s. 1 copper ore (30/min) → 1 copper ingot (30/min).
@@ -43,7 +45,7 @@ Checked against satisfactory.wiki.gg at 100% clock. The item list is every part 
 
 Machines stay at 100%. If a stage makes more than the next stage draws, the extra backs up in that stage's buffer. When a stage has surplus, its feed-end output gets a smart splitter: Any continues to the industrial storage, and Overflow is a belt labeled “Overflow out (to sink).” The open end stays clear. If a stage is receiving less than it needs, the plant stays up and the panel says so. Clocks stay at 100%. Mk1 Iron Wire → Cable needs 60 wire/min and receives 45.
 
-Other assembler and foundry recipes are not listed. Adding one is data: a recipe plus which upstream stage or feed belt supplies each input. The stair layout does not care which part it is. Alts that need oil (Coated Iron Plate, Insulated Cable, and the rest) are not in this picker.
+Heavy Modular Frame and its alts are in the list. They need a Manufacturer, so they cannot be generated in this phase. A Pure Iron Ingot alt needs a Refinery and stays off. If the chosen alts cannot be laid out, the panel says why and the previous plant stays up. A stage that would overflow one belt caps the plant and the panel says so. A stage that still fits the belt but is short on supply stays up and the panel says it is receiving less than it needs.
 
 ## Layout
 
@@ -54,7 +56,7 @@ Other assembler and foundry recipes are not listed. Adding one is data: a recipe
 - Footprints: Smelter 5×10×8.5, Constructor 8×10×8.5, Foundry 10×10×9, Assembler 9×16×11. The innermost input keeps a 1 m belt pad; each lower lane adds 1 m. Splitters and mergers are 4×4×1. Lifts are 2×2.
 - Feed end: ore belt in, a lift and buffer between floors, product belt out, player ramp. The ramp does not cross the manifolds or the open end.
 - Open end: empty foundation and an input-belt stub. Nothing terminates there.
-- Gaps between machines are wide enough to walk (constructors sit on every other foundation because they are exactly 8 m wide). There is no side-walkway spine.
+- Machines pack on a 1 m stride with at least a 2 m walk gap. The first machine in a row stays on the manifold line. Each later machine, with its splitters and merger, sits 1 m tighter toward the output side, and the manifold jogs so every belt stays axis-aligned. Foundations stay 8×8. There is no side-walkway spine.
 - Ore is an input belt. Miners are not placed. Power is not drawn.
 
 Chains live in `src/data/chains.ts`. The belt solver is `src/solve/chain.ts`. Layout is one manifold row per stage in `src/layout/plant.ts`. A stage with two inputs still occupies one row; the extra input is a second lane on that row.

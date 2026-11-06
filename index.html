@@ -26,9 +26,19 @@
         />
         <ul id="item-list" role="listbox" hidden></ul>
       </div>
-      <fieldset id="recipe-field" hidden>
-        <legend>Recipe</legend>
-        <div id="recipes"></div>
+      <fieldset id="alt-field">
+        <legend>Alt recipes</legend>
+        <label class="save-row">
+          Save
+          <input id="save-file" type="file" accept=".sav,application/octet-stream" />
+        </label>
+        <p id="save-note" class="hint"></p>
+        <div class="marks" id="alt-mode">
+          <label><input type="radio" name="alt-mode" value="all" checked /> All alts</label>
+          <label><input type="radio" name="alt-mode" value="save" /> Unlocked in save</label>
+        </div>
+        <input id="alt-search" type="search" placeholder="Search alts" autocomplete="off" />
+        <div id="alts"></div>
       </fieldset>
       <fieldset>
         <legend>Belt</legend>
@@ -39,6 +49,7 @@
           <label><input type="radio" name="mk" value="4" /> Mk4 · 480</label>
         </div>
       </fieldset>
+      <button id="generate" type="button">Generate</button>
       <div id="summary" aria-live="polite"></div>
       <p class="hint">Drag to orbit. Scroll to zoom. No walking camera yet.</p>
     </aside>

@@ -240,7 +240,12 @@ describe("item catalog", () => {
     expect(items.length).toBeGreaterThan(60);
     expect(Object.keys(ITEMS).length).toBeGreaterThan(items.length);
     const buildings = new Set(Object.values(RECIPES).map((recipe) => recipe.buildingId));
-    expect([...buildings].sort()).toEqual(["assembler", "constructor", "foundry", "smelter"]);
+    expect(buildings.has("smelter")).toBe(true);
+    expect(buildings.has("constructor")).toBe(true);
+    expect(buildings.has("foundry")).toBe(true);
+    expect(buildings.has("assembler")).toBe(true);
+    expect(buildings.has("manufacturer")).toBe(true);
+    expect(buildings.size).toBeGreaterThan(4);
     expect(Object.values(RECIPES).filter((recipe) => recipe.buildingId === "assembler").length).toBeGreaterThan(30);
     expect(readFileSync("index.html", "utf8").toLowerCase()).not.toContain("demo");
     expect(readFileSync("src/main.ts", "utf8")).not.toContain("Demo");

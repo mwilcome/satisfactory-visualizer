@@ -1,4 +1,6 @@
-import { ITEM_LIST, RECIPE_LIST } from "./generated-catalog";
+import { ITEM_LIST, RECIPE_LIST, SCHEMATIC_RECIPES } from "./generated-catalog";
+
+export { SCHEMATIC_RECIPES };
 
 /**
  * Satisfactory building and recipe data.
@@ -173,6 +175,10 @@ export const BUILDINGS = {
 
 export type BuildingId = keyof typeof BUILDINGS;
 
+export function isBuildingId(id: string): id is BuildingId {
+  return Object.prototype.hasOwnProperty.call(BUILDINGS, id);
+}
+
 export const BELT = { width: 2, height: 1 } as const;
 export const LIFT = { width: 2, length: 2 } as const;
 export const WALKWAY = { width: 4, length: 4, height: 2, rise: 2 } as const;
@@ -247,7 +253,7 @@ export interface Recipe {
   name: string;
   alternate: boolean;
   className: string;
-  buildingId: BuildingId;
+  buildingId: string;
   cycleSeconds: number;
   inputs: ItemStack[];
   outputs: ItemStack[];

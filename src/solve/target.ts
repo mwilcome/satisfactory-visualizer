@@ -3,7 +3,7 @@ import {
   ITEMS,
   RECIPES,
   beltByMk,
-  targetItems,
+  isBuildingId,
   type BeltMk,
   type Recipe,
   type RecipeId,
@@ -70,7 +70,7 @@ export function recipeChoices(
           id: option.id,
           name: option.name,
           alternate: option.alternate,
-          building: BUILDINGS[option.buildingId]?.name ?? option.buildingId,
+          building: isBuildingId(option.buildingId) ? BUILDINGS[option.buildingId].name : option.buildingId,
         })),
       });
     }
@@ -117,8 +117,90 @@ export function canLayOut(itemId: string, chosen: Readonly<Partial<Record<string
   return !plan.blockedReason || plan.blockedReason.startsWith("Mk");
 }
 
+/** This phase can place the recipe's own building. Fluids and extra ports wait. */
+export function recipePlaceable(recipe: Recipe): boolean {
+  return unsupported(recipe) === null;
+}
+
+/**
+ * An item is selectable when some combination of placeable recipes builds it.
+ * The player's current alt picks are applied later, at Generate.
+ */
+export function supportedItemIds(): Set<string> {
+  const known = new Map<string, boolean>();
+  const visit = (itemId: string, stack: Set<string>): boolean => {
+    const cached = known.get(itemId);
+    if (cached !== undefined && !stack.has(itemId)) return cached;
+    if (stack.has(itemId)) return false;
+    const item = ITEMS[itemId];
+    if (!item || item.fluid) {
+      known.set(itemId, false);
+      return false;
+    }
+    const options = recipesFor(itemId).filter(recipePlaceable);
+    if (options.length === 0) {
+      known.set(itemId, false);
+      return false;
+    }
+    stack.add(itemId);
+    let ok = false;
+    for (const recipe of options) {
+      const inputsOk = recipe.inputs.every((input) => {
+        const next = ITEMS[input.itemId];
+        if (!next || next.fluid) return false;
+        if (next.raw) return true;
+        return visit(input.itemId, stack);
+      });
+      if (inputsOk) {
+        ok = true;
+        break;
+      }
+    }
+    stack.delete(itemId);
+    known.set(itemId, ok);
+    return ok;
+  };
+  for (const itemId of Object.keys(ITEMS)) visit(itemId, new Set());
+  return new Set([...known.entries()].filter((entry) => entry[1]).map((entry) => entry[0]));
+}
+
 export function selectableItems(): { id: string; name: string }[] {
-  return targetItems().filter((item) => canLayOut(item.id));
+  return pickerItems().filter((item) => item.selectable);
+}
+
+/** Every item in the snapshot. Unsupported parts stay in the list and cannot be chosen. */
+export function pickerItems(): { id: string; name: string; selectable: boolean }[] {
+  const supported = supportedItemIds();
+  return Object.values(ITEMS)
+    .map((item) => ({ id: item.id, name: item.name, selectable: supported.has(item.id) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export interface AltEntry {
+  id: string;
+  name: string;
+  itemId: string;
+  itemName: string;
+  className: string;
+  placeable: boolean;
+}
+
+/** Every alternate in the snapshot. Ones this phase cannot place stay listed. */
+export function altEntries(): AltEntry[] {
+  return Object.values(RECIPES)
+    .filter((recipe) => recipe.alternate)
+    .map((recipe) => {
+      const itemId = recipe.outputs[0]?.itemId ?? "";
+      return {
+        id: recipe.id,
+        name: recipe.name,
+        itemId,
+        itemName: ITEMS[itemId]?.name ?? itemId,
+        className: recipe.className,
+        placeable: recipePlaceable(recipe),
+      };
+    })
+    .sort((a, b) => a.itemName.localeCompare(b.itemName) || a.name.localeCompare(b.name));
 }
 
 function expand(
