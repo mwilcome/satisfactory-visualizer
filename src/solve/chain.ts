@@ -151,6 +151,18 @@ export function solveWired(
     };
   });
 
+  const short = built.find((stage) => stage.machines < 1);
+  if (short) {
+    const recipe = RECIPES[short.recipeId];
+    const peak = recipe
+      ? Math.max(...recipe.inputs.map((stack) => stack.perMin), recipe.outputs[0]?.perMin ?? 0)
+      : 0;
+    return {
+      ...empty,
+      blockedReason: `Mk${beltMk} cannot carry one ${recipe?.name ?? short.recipeId} machine (${trim(peak)} / min on a ${belt.perMin} belt).`,
+    };
+  }
+
   const placed = built[last]?.machines ?? 0;
   const made = built[last]?.outputPerMin ?? 0;
   const building = goal.recipe.buildingId;

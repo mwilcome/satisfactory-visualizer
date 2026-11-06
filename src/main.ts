@@ -1,7 +1,7 @@
 import { BUILDINGS, ITEMS, RECIPES, isBeltMk, isBuildingId, type BeltMk, type ItemId } from "./data/catalog";
 import { layoutIssues } from "./layout/invariants";
 import { buildChainPlant } from "./layout/plant";
-import type { Plant } from "./layout/types";
+import type { Plant, Solid } from "./layout/types";
 import { FactoryView } from "./render/view";
 import { SURPLUS_EPSILON, type StagePlan } from "./solve/chain";
 import { altEntries, pickerItems, solveTarget, standardRecipe, supportedItemIds } from "./solve/target";
@@ -9,6 +9,7 @@ import { STORAGE_KEY, parseSelection, serializeSelection, type Selection } from 
 import { unlockedRecipeClasses } from "./ui/save-alts";
 
 const viewportEl = document.querySelector<HTMLElement>("#viewport");
+const detailEl = document.querySelector<HTMLElement>("#detail");
 const summaryEl = document.querySelector<HTMLElement>("#summary");
 const titleEl = document.querySelector<HTMLElement>("#title");
 const ledeEl = document.querySelector<HTMLElement>("#lede");
@@ -24,6 +25,7 @@ const generateEl = document.querySelector<HTMLButtonElement>("#generate");
 
 if (
   !viewportEl ||
+  !detailEl ||
   !summaryEl ||
   !titleEl ||
   !ledeEl ||
@@ -41,6 +43,7 @@ if (
 }
 
 const viewport: HTMLElement = viewportEl;
+const detail: HTMLElement = detailEl;
 const summary: HTMLElement = summaryEl;
 const title: HTMLElement = titleEl;
 const lede: HTMLElement = ledeEl;
@@ -57,6 +60,8 @@ const targets = pickerItems();
 const supported = supportedItemIds();
 const alts = altEntries();
 const view = new FactoryView(viewport);
+let shown: Plant | null = null;
+view.onPick = (solid) => renderDetail(solid);
 
 let selection = parseSelection(localStorage.getItem(STORAGE_KEY));
 let altMode: "all" | "save" = "all";
@@ -99,7 +104,49 @@ function showItem(next: Selection): void {
     return;
   }
   view.show(plant);
+  shown = plant;
+  detail.hidden = true;
   renderSummary(summary, plant);
+}
+
+function renderDetail(solid: Solid | null): void {
+  if (!solid || solid.kind !== "machine" || !shown) {
+    detail.hidden = true;
+    return;
+  }
+  const recipe = solid.recipeId ? RECIPES[solid.recipeId] : undefined;
+  const stage = shown.plan.stages.find((item) => item.stageId === solid.rowId);
+  const floor = stage ? shown.plan.stages.indexOf(stage) + 1 : 0;
+  const output = recipe?.outputs[0];
+  const outputName = output ? itemName(output.itemId) : "Output";
+  detail.replaceChildren();
+  const heading = document.createElement("h2");
+  heading.textContent = outputName;
+  detail.append(heading);
+  const where = document.createElement("p");
+  const building = recipe ? buildingName(recipe.buildingId) : "Machine";
+  where.textContent = floor > 0 ? `${building} · Floor ${floor}` : building;
+  detail.append(where);
+  if (recipe) {
+    const made = document.createElement("p");
+    made.textContent = `${recipe.name}. ${trim(output?.perMin ?? 0)} / min from this machine.`;
+    detail.append(made);
+    for (const [index, stack] of recipe.inputs.entries()) {
+      const line = document.createElement("p");
+      const stageRate = stage?.inputsPerMin[index];
+      line.textContent =
+        stageRate === undefined
+          ? `${itemName(stack.itemId)} in · ${trim(stack.perMin)} / min`
+          : `${itemName(stack.itemId)} in · ${trim(stack.perMin)} / min each · ${trim(stageRate)} / min on the floor`;
+      detail.append(line);
+    }
+    if (stage) {
+      const out = document.createElement("p");
+      out.textContent = `${outputName} out · ${trim(stage.outputPerMin)} / min from ${stage.machines} ${plural(building, stage.machines)}`;
+      detail.append(out);
+    }
+  }
+  detail.hidden = false;
 }
 
 function refreshBeltMarks(): void {
@@ -153,7 +200,8 @@ function renderAlts(): void {
     }
     const input = document.createElement("input");
     input.type = "checkbox";
-    input.checked = selection.recipes[alt.itemId] === alt.id;
+    const active = selection.recipes[alt.itemId] ?? standardRecipe(alt.itemId)?.id;
+    input.checked = active === alt.id;
     input.disabled = !alt.placeable;
     input.addEventListener("change", () => {
       const recipes = { ...selection.recipes };
@@ -179,7 +227,7 @@ function renderAlts(): void {
       altMode === "save"
         ? "No unlocked alts yet. Load a save, or switch to all alts."
         : itemOnly
-          ? `No alts for ${itemLabel}.`
+          ? `No other recipes for ${itemLabel}.`
           : "No alts match.";
     altsHost.append(empty);
   }

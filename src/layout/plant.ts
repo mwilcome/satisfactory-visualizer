@@ -65,6 +65,8 @@ interface Draft {
   corridors: WalkCorridor[];
   labels: PlantLabel[];
   keys: Set<string>;
+  /** Feed columns. Each has two z slots so one floor can hold two containers. */
+  columns: { x: number; slots: [Set<string>, Set<string>] }[];
 }
 
 interface LaneIn {
@@ -195,9 +197,10 @@ export function buildChainPlant(plan: ChainPlan): Plant {
     corridors: [],
     labels: [],
     keys: new Set<string>(),
+    columns: [],
   };
 
-  const apron = apronTiles(rows.length, isLinearWiring(wired) ? 0 : linkSlotCount(rows)) + (rows.some((row) => row.doubled) ? 2 : 0);
+  const apron = apronTiles(rows.length, isLinearWiring(wired) ? 0 : columnBudget(rows)) + (rows.some((row) => row.doubled) ? 2 : 0);
   const rowMeta = rows.map((row) => {
     const openEndX = Math.max(...row.sides.map((side) => side.count)) * row.strideM;
     layRow(draft, row, openEndX, apron);
@@ -251,25 +254,75 @@ export function buildDemoPlant(beltMk: BeltMk): Plant {
 }
 
 function apronTiles(floors: number, linkSlots: number): number {
-  // Each story's ramp switchback fits in three foundation tiles.
-  // Lifts and joined-link columns still step one tile further out per slot.
+  // Linear lifts step one tile further out per story. Joined columns do not.
   const farthestLiftTile = 4 + Math.max(0, floors - 2);
   const slotTiles = linkSlots > 0 ? 4 + (linkSlots - 1) * 2 : 0;
-  return Math.max(4, farthestLiftTile, slotTiles, 3);
+  if (linkSlots > 0) return Math.max(4, slotTiles);
+  return Math.max(4, farthestLiftTile, 3);
 }
 
-function linkSlotCount(rows: RowSpec[]): number {
-  let slots = 0;
+/** How many feed columns one floor can need. Links that skip a floor share a column. */
+function columnBudget(rows: RowSpec[]): number {
+  const touch = new Map<string, number>();
+  const add = (id: string) => touch.set(id, (touch.get(id) ?? 0) + 1);
+  const ground = rows[0]?.floor.id;
   for (const row of rows) {
     for (const input of row.inputs) {
       if (input.from === "feed") {
-        if (row.stageIndex > 0) slots += 1;
+        if (row.stageIndex === 0 || !ground) continue;
+        add(row.floor.id);
+        add(ground);
       } else {
-        slots += 1;
+        add(row.floor.id);
+        const source = rows[input.from];
+        if (source) add(source.floor.id);
       }
     }
   }
-  return slots;
+  let max = 1;
+  for (const value of touch.values()) max = Math.max(max, value);
+  if (rows.some((row) => row.doubled)) max *= 2;
+  return Math.max(1, Math.ceil(max / 2));
+}
+
+interface ColumnClaim {
+  x: number;
+  /** 0 sits on z = 0. 1 sits past the output mergers so the two containers share an x. */
+  slot: number;
+}
+
+/** 16 m leaves a 5 m gap between 11 m buffers. A free slot is one whose floors this link does not use. */
+function claimColumn(draft: Draft, floorIds: string[]): ColumnClaim {
+  const pitch = 16;
+  for (const column of draft.columns) {
+    for (let slot = 0; slot < 2; slot += 1) {
+      const used = column.slots[slot];
+      if (!used || !floorIds.every((id) => !used.has(id))) continue;
+      for (const id of floorIds) used.add(id);
+      return { x: column.x, slot };
+    }
+  }
+  const x = -22 - draft.columns.length * pitch;
+  const slots: [Set<string>, Set<string>] = [new Set(floorIds), new Set()];
+  draft.columns.push({ x, slots });
+  return { x, slot: 0 };
+}
+
+function slotLiftZ(slot: number): number {
+  return slot === 0 ? LIFT_Z : 35;
+}
+
+function slotBufferZ(slot: number): number {
+  return slot === 0 ? INPUT_Z : 30;
+}
+
+function slotFeedZ(slot: number): number {
+  return slot === 0 ? -6 : -18;
+}
+
+/** Slot 1's shaft sits 9 m toward the feed so it clears the slot 0 shaft and the smart splitter. */
+function slotLiftX(columnX: number, slot: number): number {
+  return slot === 0 ? columnX : columnX - 9;
 }
 
 function sidePose(
@@ -324,10 +377,7 @@ function laneBeltY(floor: Floor, lane: number): number {
   return beltCenterY(floor) + lane * INPUT_LANE_RISE_M;
 }
 
-function slotX(slot: number): number {
-  // 16 m leaves room for an 11 m buffer beside the lift without touching the next column.
-  return -28 - slot * (TILE * 2);
-}
+
 
 /**
  * Lowest lift is farthest from the machines. Higher lifts step back toward
@@ -650,9 +700,10 @@ function layFeedSurplus(
     rowId: row.id,
     designPerMin: onward,
   };
-  const fromLeft = firstFace < splitX;
-  const inFace = splitX + (fromLeft ? -SPLIT / 2 : SPLIT / 2);
-  const outFace = splitX + (fromLeft ? SPLIT / 2 : -SPLIT / 2);
+  const sourceOnLeft = firstFace < splitX - 1e-6;
+  const liftOnLeft = liftXPos < splitX - 1e-6;
+  const inFace = splitX + (sourceOnLeft ? -SPLIT / 2 : SPLIT / 2);
+  const outFace = splitX + (liftOnLeft ? -SPLIT / 2 : SPLIT / 2);
 
   addBelt(draft, `${row.id}-to-split`, { x: firstFace, y: yBelt, z: mergerZ }, { x: inFace, y: yBelt, z: mergerZ }, main);
   draft.solids.push({
@@ -663,7 +714,17 @@ function layFeedSurplus(
     base: { x: splitX, y: yWalk, z: mergerZ },
     size: { x: SPLIT, y: BUILDINGS.smartSplitter.height, z: SPLIT },
   });
-  addBelt(draft, `${row.id}-any-to-lift`, { x: outFace, y: yBelt, z: mergerZ }, { x: liftXPos, y: yBelt, z: mergerZ }, main);
+  // The lift shares a side with the incoming belt. Step off the splitter in -z
+  // so Any reaches the lift without crossing the splitter body. Overflow owns +z.
+  if (sourceOnLeft === liftOnLeft && Math.abs(liftXPos - splitX) > 1e-6) {
+    const faceZ = mergerZ - SPLIT / 2;
+    const clearZ = faceZ - 1;
+    addBelt(draft, `${row.id}-any-off`, { x: splitX, y: yBelt, z: faceZ }, { x: splitX, y: yBelt, z: clearZ }, main);
+    addBelt(draft, `${row.id}-any-around`, { x: splitX, y: yBelt, z: clearZ }, { x: liftXPos, y: yBelt, z: clearZ }, main);
+    addBelt(draft, `${row.id}-any-to-lift`, { x: liftXPos, y: yBelt, z: clearZ }, { x: liftXPos, y: yBelt, z: mergerZ }, main);
+  } else if (Math.abs(liftXPos - outFace) > 1e-6) {
+    addBelt(draft, `${row.id}-any-to-lift`, { x: outFace, y: yBelt, z: mergerZ }, { x: liftXPos, y: yBelt, z: mergerZ }, main);
+  }
   addOverflowRun(draft, row, `${row.id}-overflow-to-sink`, splitX, yBelt, mergerZ + SPLIT / 2);
   draft.labels.push(
     {
@@ -698,7 +759,6 @@ function layJoinedLogistics(draft: Draft, plan: ChainPlan, rows: RowSpec[], apro
   const ground = rows[0]?.floor;
   if (!goal || !ground) return;
 
-  let slot = 0;
   const seenSurplus = new Set<string>();
   for (const row of rows) {
     const stage = plan.stages[row.stageIndex];
@@ -710,8 +770,7 @@ function layJoinedLogistics(draft: Draft, plan: ChainPlan, rows: RowSpec[], apro
       if (input.from === "feed") {
         if (row.stageIndex === 0) layGroundFeed(draft, row, lane, apron, input.itemId, drawn);
         else {
-          layUpperFeed(draft, row, lane, slot, apron, input.itemId, drawn, ground);
-          slot += 1;
+          layUpperFeed(draft, row, lane, apron, input.itemId, drawn, ground);
         }
         continue;
       }
@@ -720,8 +779,7 @@ function layJoinedLogistics(draft: Draft, plan: ChainPlan, rows: RowSpec[], apro
       if (!source || !sourceStage) throw new Error(`${row.id} is missing an upstream row.`);
       const placeSurplus = source.surplusPerMin > SURPLUS_EPSILON && !seenSurplus.has(source.id);
       if (placeSurplus) seenSurplus.add(source.id);
-      layJoinedLink(draft, source, row, lane, slot, sourceStage, drawn, placeSurplus);
-      slot += 1;
+      layJoinedLink(draft, source, row, lane, sourceStage, drawn, placeSurplus);
     }
   }
 
@@ -794,14 +852,14 @@ function layUpperFeed(
   draft: Draft,
   row: RowSpec,
   lane: number,
-  slot: number,
   apron: number,
   item: string,
   rate: number,
   ground: Floor,
 ): void {
-  const x = slotX(slot);
-  const zLift = -6;
+  const claimed = claimColumn(draft, [ground.id, row.floor.id]);
+  const x = slotLiftX(claimed.x, claimed.slot);
+  const zLift = slotFeedZ(claimed.slot);
   const y0 = beltCenterY(ground);
   const y1 = laneBeltY(row.floor, lane);
   const zLane = row.laneZ[lane] ?? INPUT_Z;
@@ -844,14 +902,16 @@ function layJoinedLink(
   source: RowSpec,
   dest: RowSpec,
   lane: number,
-  slot: number,
   sourceStage: StagePlan,
   drawn: number,
   placeSurplus: boolean,
 ): void {
   const yLower = beltCenterY(source.floor);
   const yUpper = beltCenterY(dest.floor);
-  const x = slotX(slot);
+  const claimed = claimColumn(draft, [source.floor.id, dest.floor.id]);
+  const x = slotLiftX(claimed.x, claimed.slot);
+  const liftZ = slotLiftZ(claimed.slot);
+  const bufferZ = slotBufferZ(claimed.slot);
   const mergerZ = source.mergerZ;
   const item = source.outputItem;
   const firstFace = rowFaceX(source);
@@ -863,7 +923,7 @@ function layJoinedLink(
     designPerMin: placeSurplus ? forwardRate(draft, source) : sourceStage.outputPerMin,
   };
 
-  addFoundation(draft, source.floor, tileIndex(x), tileIndex(LIFT_Z));
+  addFoundation(draft, source.floor, tileIndex(x), tileIndex(liftZ));
   if (placeSurplus) {
     layFeedSurplus(draft, source, mergerZ, walkY(source.floor), yLower, firstFace, x, -10);
   } else {
@@ -875,19 +935,13 @@ function layJoinedLink(
       carried,
     );
   }
-  addBelt(
-    draft,
-    `${source.id}-to-${dest.id}-z`,
-    { x, y: yLower, z: mergerZ },
-    { x, y: yLower, z: LIFT_Z - LIFT.length / 2 },
-    carried,
-  );
+  runToLiftShaft(draft, `${source.id}-to-${dest.id}`, yLower, x, mergerZ, x, liftZ, carried);
   const liftHeight = walkY(dest.floor) + BELT.height - walkY(source.floor);
   draft.solids.push({
     id: `lift-${source.id}-to-${dest.id}`,
     kind: "lift",
     floorId: source.floor.id,
-    base: { x, y: walkY(source.floor), z: LIFT_Z },
+    base: { x, y: walkY(source.floor), z: liftZ },
     size: { x: LIFT.width, y: liftHeight, z: LIFT.length },
   });
 
@@ -898,16 +952,16 @@ function layJoinedLink(
     kind: placeSurplus ? "bank" : "buffer",
     floorId: dest.floor.id,
     rowId: source.id,
-    base: { x: bufferX, y: walkY(dest.floor), z: INPUT_Z },
+    base: { x: bufferX, y: walkY(dest.floor), z: bufferZ },
     size: { x: storage.length, y: storage.height, z: storage.width },
   });
-  addFoundation(draft, dest.floor, tileIndex(bufferX), tileIndex(INPUT_Z));
+  addFoundation(draft, dest.floor, tileIndex(bufferX), tileIndex(bufferZ));
 
   addBelt(
     draft,
     `${dest.id}-l${lane}-from-lift`,
-    { x, y: yUpper, z: LIFT_Z - LIFT.length / 2 },
-    { x, y: yUpper, z: INPUT_Z },
+    { x, y: yUpper, z: liftZ - LIFT.length / 2 },
+    { x, y: yUpper, z: bufferZ },
     carried,
   );
   const faceIn = bufferX - storage.length / 2;
@@ -915,19 +969,19 @@ function layJoinedLink(
   const stand = 1;
   const portY = walkY(dest.floor) + INDUSTRIAL_PORT_Y;
   const intoBank = { ...carried, rowId: dest.id };
-  addBelt(draft, `${dest.id}-l${lane}-to-buffer`, { x, y: yUpper, z: INPUT_Z }, { x: faceIn - stand, y: yUpper, z: INPUT_Z }, intoBank);
+  addBelt(draft, `${dest.id}-l${lane}-to-buffer`, { x, y: yUpper, z: bufferZ }, { x: faceIn - stand, y: yUpper, z: bufferZ }, intoBank);
   addBelt(
     draft,
     `${dest.id}-l${lane}-to-buffer-up`,
-    { x: faceIn - stand, y: yUpper, z: INPUT_Z },
-    { x: faceIn - stand, y: portY, z: INPUT_Z },
+    { x: faceIn - stand, y: yUpper, z: bufferZ },
+    { x: faceIn - stand, y: portY, z: bufferZ },
     intoBank,
   );
   addBelt(
     draft,
     `${dest.id}-l${lane}-to-buffer-port`,
-    { x: faceIn - stand, y: portY, z: INPUT_Z },
-    { x: faceIn + INDUSTRIAL_PORT_ENTRY, y: portY, z: INPUT_Z },
+    { x: faceIn - stand, y: portY, z: bufferZ },
+    { x: faceIn + INDUSTRIAL_PORT_ENTRY, y: portY, z: bufferZ },
     intoBank,
   );
   const outOfBank = {
@@ -939,23 +993,28 @@ function layJoinedLink(
   addBelt(
     draft,
     `${dest.id}-l${lane}-from-buffer-port`,
-    { x: faceOut - INDUSTRIAL_PORT_ENTRY, y: portY, z: INPUT_Z },
-    { x: faceOut + stand, y: portY, z: INPUT_Z },
+    { x: faceOut - INDUSTRIAL_PORT_ENTRY, y: portY, z: bufferZ },
+    { x: faceOut + stand, y: portY, z: bufferZ },
     outOfBank,
   );
   addBelt(
     draft,
     `${dest.id}-l${lane}-from-buffer-down`,
-    { x: faceOut + stand, y: portY, z: INPUT_Z },
-    { x: faceOut + stand, y: yUpper, z: INPUT_Z },
+    { x: faceOut + stand, y: portY, z: bufferZ },
+    { x: faceOut + stand, y: yUpper, z: bufferZ },
     outOfBank,
   );
   const exitX = faceOut + stand;
-  routeToLane(draft, dest, lane, exitX, item, drawn, elevated);
+  // z = 6 misses containers on z = 0 and z = 30. Dropping to z = 0 here cuts the other column.
+  const departZ = 6;
+  if (Math.abs(bufferZ - departZ) > 1e-6) {
+    addBelt(draft, `${dest.id}-l${lane}-buffer-z`, { x: exitX, y: yUpper, z: bufferZ }, { x: exitX, y: yUpper, z: departZ }, outOfBank);
+  }
+  routeToLane(draft, dest, lane, exitX, item, drawn, elevated, departZ);
   draft.labels.push({
     id: `label-buffer-${dest.id}-l${lane}`,
     text: placeSurplus ? "Bank" : `${itemName(item)} buffer`,
-    position: { x: bufferX, y: walkY(dest.floor) + storage.height + 0.6, z: INPUT_Z },
+    position: { x: bufferX, y: walkY(dest.floor) + storage.height + 0.6, z: bufferZ },
   });
 }
 
@@ -967,6 +1026,7 @@ function routeToLane(
   item: string,
   rate: number,
   elevated: boolean,
+  fromZ = INPUT_Z,
 ): void {
   const yFloor = beltCenterY(row.floor);
   const yLane = laneBeltY(row.floor, lane);
@@ -975,7 +1035,7 @@ function routeToLane(
   const flow = { itemId: item, role: "input-manifold" as const, rowId: row.id, designPerMin: rate };
   let x = fromX;
   let y = yFloor;
-  let z = INPUT_Z;
+  let z = fromZ;
   if (elevated) {
     const liftAt = fromX + 2;
     addBelt(draft, `${row.id}-l${lane}-to-rise`, { x, y, z }, { x: liftAt - LIFT.width / 2, y, z }, flow);
@@ -997,6 +1057,16 @@ function routeToLane(
     addBelt(draft, `${row.id}-l${lane}-clear-x`, { x, y, z: clearZ }, { x: pastX, y, z: clearZ }, flow);
     x = pastX;
     z = clearZ;
+  }
+  // Buffers line z = 0. A ground belt from an outer column cuts the inner ones.
+  if (!elevated && x < -4 - 1e-6) {
+    const clearZ = 6;
+    if (Math.abs(z - clearZ) > 1e-6) {
+      addBelt(draft, `${row.id}-l${lane}-off-z`, { x, y, z }, { x, y, z: clearZ }, flow);
+      z = clearZ;
+    }
+    addBelt(draft, `${row.id}-l${lane}-off-x`, { x, y, z }, { x: -4, y, z }, flow);
+    x = -4;
   }
   if (Math.abs(z - zLane) > 1e-6) {
     addBelt(draft, `${row.id}-l${lane}-jog`, { x, y, z }, { x, y, z: zLane }, flow);
@@ -1272,6 +1342,16 @@ function runToLane(
   if (Math.abs(yLane - yFloor) < 1e-6) {
     let x = fromX;
     let z = fromZ;
+    // Containers sit on z = 0 and z = 30. Cross the apron at z = 6, which misses both.
+    if (x < -4 - 1e-6) {
+      const clearZ = 6;
+      if (Math.abs(z - clearZ) > 1e-6) {
+        addBelt(draft, `${id}-off-z`, { x, y: yFloor, z }, { x, y: yFloor, z: clearZ }, flow);
+        z = clearZ;
+      }
+      addBelt(draft, `${id}-off-x`, { x, y: yFloor, z }, { x: -4, y: yFloor, z }, flow);
+      x = -4;
+    }
     if (Math.abs(z - zLane) > 1e-6) {
       addBelt(draft, `${id}-z`, { x, y: yFloor, z }, { x, y: yFloor, z: zLane }, flow);
       z = zLane;
@@ -1312,6 +1392,23 @@ function runToLane(
   addBelt(draft, `${id}-run`, { x: xLift, y: yLane, z: zLane }, { x: face, y: yLane, z: zLane }, flow);
 }
 
+function runToLiftShaft(
+  draft: Draft,
+  tag: string,
+  y: number,
+  fromX: number,
+  fromZ: number,
+  liftX: number,
+  liftZ: number,
+  flow: Omit<Belt, "id" | "from" | "to" | "mk">,
+): void {
+  const faceZ = liftZ - LIFT.length / 2;
+  if (Math.abs(fromX - liftX) > 1e-6) {
+    addBelt(draft, `${tag}-to-lift-x`, { x: fromX, y, z: fromZ }, { x: liftX, y, z: fromZ }, flow);
+  }
+  addBelt(draft, `${tag}-to-lift-z`, { x: liftX, y, z: fromZ }, { x: liftX, y, z: faceZ }, flow);
+}
+
 function liftColumn(
   draft: Draft,
   source: RowSpec,
@@ -1323,28 +1420,22 @@ function liftColumn(
   carried: number,
   tag: string,
   bank: boolean,
+  slot: number,
 ): { exitX: number; exitZ: number } {
   const yLower = beltCenterY(source.floor);
   const yUpper = beltCenterY(dest.floor);
   const storage = BUILDINGS.storageIndustrial;
+  const liftZ = slotLiftZ(slot);
+  const bufferZ = slotBufferZ(slot);
   const flow = { itemId: item, role: "stage-link" as const, rowId: source.id, designPerMin: carried };
-  addFoundation(draft, source.floor, tileIndex(liftXPos), tileIndex(LIFT_Z));
-  if (Math.abs(fromX - liftXPos) > 1e-6) {
-    addBelt(draft, `${tag}-to-lift-x`, { x: fromX, y: yLower, z: fromZ }, { x: liftXPos, y: yLower, z: fromZ }, flow);
-  }
-  addBelt(
-    draft,
-    `${tag}-to-lift-z`,
-    { x: liftXPos, y: yLower, z: fromZ },
-    { x: liftXPos, y: yLower, z: LIFT_Z - LIFT.length / 2 },
-    flow,
-  );
+  addFoundation(draft, source.floor, tileIndex(liftXPos), tileIndex(liftZ));
+  runToLiftShaft(draft, tag, yLower, fromX, fromZ, liftXPos, liftZ, flow);
   const liftHeight = walkY(dest.floor) + BELT.height - walkY(source.floor);
   draft.solids.push({
     id: `lift-${tag}`,
     kind: "lift",
     floorId: source.floor.id,
-    base: { x: liftXPos, y: walkY(source.floor), z: LIFT_Z },
+    base: { x: liftXPos, y: walkY(source.floor), z: liftZ },
     size: { x: LIFT.width, y: liftHeight, z: LIFT.length },
   });
   const bufferX = liftXPos + LIFT.width / 2 + 1 + storage.length / 2;
@@ -1353,34 +1444,34 @@ function liftColumn(
     kind: bank ? "bank" : "buffer",
     floorId: dest.floor.id,
     rowId: source.id,
-    base: { x: bufferX, y: walkY(dest.floor), z: INPUT_Z },
+    base: { x: bufferX, y: walkY(dest.floor), z: bufferZ },
     size: { x: storage.length, y: storage.height, z: storage.width },
   });
-  addFoundation(draft, dest.floor, tileIndex(bufferX), tileIndex(INPUT_Z));
-  addBelt(draft, `${tag}-from-lift`, { x: liftXPos, y: yUpper, z: LIFT_Z - LIFT.length / 2 }, { x: liftXPos, y: yUpper, z: INPUT_Z }, flow);
+  addFoundation(draft, dest.floor, tileIndex(bufferX), tileIndex(bufferZ));
+  addBelt(draft, `${tag}-from-lift`, { x: liftXPos, y: yUpper, z: liftZ - LIFT.length / 2 }, { x: liftXPos, y: yUpper, z: bufferZ }, flow);
   const faceIn = bufferX - storage.length / 2;
   const faceOut = bufferX + storage.length / 2;
   const stand = 1;
   const portY = walkY(dest.floor) + INDUSTRIAL_PORT_Y;
   const into = { ...flow, rowId: dest.id };
-  addBelt(draft, `${tag}-to-buffer`, { x: liftXPos, y: yUpper, z: INPUT_Z }, { x: faceIn - stand, y: yUpper, z: INPUT_Z }, into);
-  addBelt(draft, `${tag}-to-buffer-up`, { x: faceIn - stand, y: yUpper, z: INPUT_Z }, { x: faceIn - stand, y: portY, z: INPUT_Z }, into);
+  addBelt(draft, `${tag}-to-buffer`, { x: liftXPos, y: yUpper, z: bufferZ }, { x: faceIn - stand, y: yUpper, z: bufferZ }, into);
+  addBelt(draft, `${tag}-to-buffer-up`, { x: faceIn - stand, y: yUpper, z: bufferZ }, { x: faceIn - stand, y: portY, z: bufferZ }, into);
   addBelt(
     draft,
     `${tag}-to-buffer-port`,
-    { x: faceIn - stand, y: portY, z: INPUT_Z },
-    { x: faceIn + INDUSTRIAL_PORT_ENTRY, y: portY, z: INPUT_Z },
+    { x: faceIn - stand, y: portY, z: bufferZ },
+    { x: faceIn + INDUSTRIAL_PORT_ENTRY, y: portY, z: bufferZ },
     into,
   );
   const exitX = faceOut + stand;
-  addBelt(draft, `${tag}-from-buffer-port`, { x: faceOut - INDUSTRIAL_PORT_ENTRY, y: portY, z: INPUT_Z }, { x: exitX, y: portY, z: INPUT_Z }, into);
-  addBelt(draft, `${tag}-from-buffer-down`, { x: exitX, y: portY, z: INPUT_Z }, { x: exitX, y: yUpper, z: INPUT_Z }, into);
+  addBelt(draft, `${tag}-from-buffer-port`, { x: faceOut - INDUSTRIAL_PORT_ENTRY, y: portY, z: bufferZ }, { x: exitX, y: portY, z: bufferZ }, into);
+  addBelt(draft, `${tag}-from-buffer-down`, { x: exitX, y: portY, z: bufferZ }, { x: exitX, y: yUpper, z: bufferZ }, into);
   draft.labels.push({
     id: `label-buffer-${tag}`,
     text: bank ? "Bank" : `${itemName(item)} buffer`,
-    position: { x: bufferX, y: walkY(dest.floor) + storage.height + 0.6, z: INPUT_Z },
+    position: { x: bufferX, y: walkY(dest.floor) + storage.height + 0.6, z: bufferZ },
   });
-  return { exitX, exitZ: INPUT_Z };
+  return { exitX, exitZ: bufferZ };
 }
 
 function layProductMulti(draft: Draft, row: RowSpec, made: number): void {
@@ -1489,15 +1580,13 @@ function layFeedMulti(
   lane: number,
   apron: number,
   ground: Floor,
-  slot: number,
-): number {
+): void {
   const input = row.inputs[lane];
-  if (!input) return 0;
+  if (!input) return;
   const belt = plan.beltPerMin;
   const per = input.perMin;
   const groundFloor = row.stageIndex === 0;
   if (row.fatInputSlot === lane) {
-    let used = 0;
     for (const [sideIndex, side] of row.sides.entries()) {
       const rate = capped(side.count * per, belt, `${row.id} ${input.itemId}`);
       const z = side.laneZ[lane] ?? INPUT_Z;
@@ -1513,27 +1602,28 @@ function layFeedMulti(
       } else if (groundFloor) {
         runToLane(draft, `${row.id}-feed-${lane}-s${sideIndex}`, row, side, lane, -apron * TILE, z, input.itemId, rate, "ore-input");
       } else {
-        const x = slotX(slot + used);
+        const claimed = claimColumn(draft, [ground.id, row.floor.id]);
+        const x = slotLiftX(claimed.x, claimed.slot);
+        const feedZ = slotFeedZ(claimed.slot);
         const y0 = beltCenterY(ground);
         const y1 = beltCenterY(row.floor);
         addBelt(
           draft,
           `${row.id}-feed-${lane}-s${sideIndex}`,
-          { x: -apron * TILE, y: y0, z: -6 },
-          { x: x - LIFT.width / 2, y: y0, z: -6 },
+          { x: -apron * TILE, y: y0, z: feedZ },
+          { x: x - LIFT.width / 2, y: y0, z: feedZ },
           { itemId: input.itemId, role: "ore-input", rowId: row.id, designPerMin: rate },
         );
         draft.solids.push({
           id: `lift-feed-${row.id}-l${lane}-s${sideIndex}`,
           kind: "lift",
           floorId: ground.id,
-          base: { x, y: walkY(ground), z: -6 },
+          base: { x, y: walkY(ground), z: feedZ },
           size: { x: LIFT.width, y: y1 - y0 + BELT.height, z: LIFT.length },
         });
-        addFoundation(draft, ground, tileIndex(x), tileIndex(-6));
-        addFoundation(draft, row.floor, tileIndex(x), tileIndex(-6));
-        runToLane(draft, `${row.id}-feed-${lane}-s${sideIndex}-on`, row, side, lane, x, -6, input.itemId, rate, "ore-input");
-        used += 1;
+        addFoundation(draft, ground, tileIndex(x), tileIndex(feedZ));
+        addFoundation(draft, row.floor, tileIndex(x), tileIndex(feedZ));
+        runToLane(draft, `${row.id}-feed-${lane}-s${sideIndex}-on`, row, side, lane, x, feedZ, input.itemId, rate, "ore-input");
       }
       draft.labels.push({
         id: `${row.id}-feed-label-${lane}-s${sideIndex}`,
@@ -1541,7 +1631,7 @@ function layFeedMulti(
         position: { x: -apron * TILE + 2, y: walkY(groundFloor ? row.floor : ground) + 2.2, z },
       });
     }
-    return Math.max(used, 0);
+    return;
   }
 
   const total = capped(
@@ -1551,7 +1641,6 @@ function layFeedMulti(
   );
   let splitX = TRUNK_X;
   let splitZ = 0;
-  let used = 0;
   const y = beltCenterY(row.floor);
   if (groundFloor) {
     addBelt(
@@ -1562,34 +1651,35 @@ function layFeedMulti(
       { itemId: input.itemId, role: "ore-input", rowId: row.id, designPerMin: total },
     );
   } else {
-    const x = slotX(slot);
+    const claimed = claimColumn(draft, [ground.id, row.floor.id]);
+    const x = slotLiftX(claimed.x, claimed.slot);
+    const feedZ = slotFeedZ(claimed.slot);
     const y0 = beltCenterY(ground);
     addBelt(
       draft,
       `${row.id}-feed-${lane}`,
-      { x: -apron * TILE, y: y0, z: -6 },
-      { x: x - LIFT.width / 2, y: y0, z: -6 },
+      { x: -apron * TILE, y: y0, z: feedZ },
+      { x: x - LIFT.width / 2, y: y0, z: feedZ },
       { itemId: input.itemId, role: "ore-input", rowId: row.id, designPerMin: total },
     );
     draft.solids.push({
       id: `lift-feed-${row.id}-l${lane}`,
       kind: "lift",
       floorId: ground.id,
-      base: { x, y: walkY(ground), z: -6 },
+      base: { x, y: walkY(ground), z: feedZ },
       size: { x: LIFT.width, y: beltCenterY(row.floor) - y0 + BELT.height, z: LIFT.length },
     });
-    addFoundation(draft, ground, tileIndex(x), tileIndex(-6));
-    addFoundation(draft, row.floor, tileIndex(x), tileIndex(-6));
+    addFoundation(draft, ground, tileIndex(x), tileIndex(feedZ));
+    addFoundation(draft, row.floor, tileIndex(x), tileIndex(feedZ));
     splitX = x + 8;
-    splitZ = -6;
+    splitZ = feedZ;
     addBelt(
       draft,
       `${row.id}-feed-${lane}-to-split`,
-      { x, y, z: -6 },
-      { x: splitX, y, z: -6 },
+      { x, y, z: feedZ },
+      { x: splitX, y, z: feedZ },
       { itemId: input.itemId, role: "ore-input", rowId: row.id, designPerMin: total },
     );
-    used = 1;
   }
   draft.solids.push({
     id: `${row.id}-feed-split-${lane}`,
@@ -1608,7 +1698,6 @@ function layFeedMulti(
     text: `${itemName(input.itemId)} in`,
     position: { x: -apron * TILE + 2, y: walkY(groundFloor ? row.floor : ground) + 2.2, z: splitZ },
   });
-  return used;
 }
 
 function layLinkMulti(
@@ -1617,11 +1706,10 @@ function layLinkMulti(
   source: RowSpec,
   dest: RowSpec,
   lane: number,
-  slot: number,
   sourceStage: StagePlan,
   drawn: number,
   placeSurplus: boolean,
-): number {
+): void {
   const belt = plan.beltPerMin;
   const item = source.outputItem;
   const perIn = dest.inputs[lane]?.perMin ?? 0;
@@ -1644,34 +1732,37 @@ function layLinkMulti(
       const overflow = placeSurplus ? (overflows[sideIndex] ?? 0) : 0;
       const kept = capped(src - overflow, belt, `${source.id} side ${sideIndex}`);
       let fromX = face;
+      const claimed = claimColumn(draft, [source.floor.id, dest.floor.id]);
+      const column = slotLiftX(claimed.x, claimed.slot);
       if (overflow > SURPLUS_EPSILON) fromX = placeSideSurplus(draft, source, side, sideIndex, overflow, belt);
       else {
         addBelt(
           draft,
           `${source.id}-s${sideIndex}-pull`,
           { x: face, y, z: side.mergerZ },
-          { x: slotX(slot + sideIndex), y, z: side.mergerZ },
+          { x: column, y, z: side.mergerZ },
           { itemId: item, role: "stage-link", rowId: source.id, designPerMin: kept },
         );
-        fromX = slotX(slot + sideIndex);
+        fromX = column;
       }
       const dst = dest.sides[sideIndex] ?? dest.sides[0];
       if (!dst) continue;
-      const arrived = liftColumn(draft, source, dest, fromX, side.mergerZ, slotX(slot + sideIndex), item, kept, `${source.id}-s${sideIndex}-to-${dest.id}`, placeSurplus && sideIndex === 0 && source.surplusPerMin > SURPLUS_EPSILON);
+      const arrived = liftColumn(draft, source, dest, fromX, side.mergerZ, column, item, kept, `${source.id}-s${sideIndex}-to-${dest.id}`, placeSurplus && sideIndex === 0 && source.surplusPerMin > SURPLUS_EPSILON, claimed.slot);
       const need = capped(dstRates[sideIndex] ?? kept, belt, `${dest.id} ${item}`);
       runToLane(draft, `${dest.id}-l${lane}-s${sideIndex}`, dest, dst, lane, arrived.exitX, arrived.exitZ, item, need, "input-manifold");
     }
-    return source.sides.length;
+    return;
   }
 
   const sent = Math.min(output, drawn > 0 ? drawn : output, belt);
   if (source.sides.length === 1 && source.sides[0]) {
     const side = source.sides[0];
-    const liftAt = slotX(slot);
+    const claimed = claimColumn(draft, [source.floor.id, dest.floor.id]);
+    const liftAt = slotLiftX(claimed.x, claimed.slot);
     const rawSide = srcRates[0] ?? output;
     const sideRate = placeSurplus ? forwardRate(draft, source) : capped(rawSide, belt, `${source.id} output`);
     if (placeSurplus) {
-      layFeedSurplus(draft, source, side.mergerZ, walkY(source.floor), y, face, liftAt, -10 - slot * 6);
+      layFeedSurplus(draft, source, side.mergerZ, walkY(source.floor), y, face, liftAt, (face + liftAt) / 2);
     } else {
       addBelt(draft, `${source.id}-pull-${dest.id}-l${lane}`, { x: face, y, z: side.mergerZ }, { x: liftAt, y, z: side.mergerZ }, {
         itemId: item, role: "stage-link", rowId: source.id, designPerMin: sideRate,
@@ -1679,14 +1770,17 @@ function layLinkMulti(
     }
     const arrived = liftColumn(
       draft, source, dest, liftAt, side.mergerZ, liftAt, item, sideRate,
-      `${source.id}-to-${dest.id}-l${lane}`, placeSurplus,
+      `${source.id}-to-${dest.id}-l${lane}`, placeSurplus, claimed.slot,
     );
     deliverToDest(draft, dest, lane, arrived.exitX, arrived.exitZ, item, dstRates, belt, sent);
-    return 1;
+    return;
   }
-  const joinX = slotX(slot) - 16;
+  const claimed = claimColumn(draft, [source.floor.id, dest.floor.id]);
+  const liftAt = slotLiftX(claimed.x, claimed.slot);
+  const joinX = claimed.x;
+  const meetZ = 10;
   let streamX = joinX;
-  let streamZ = 0;
+  let streamZ = meetZ;
   if (output <= belt + 1e-6) {
     for (const [sideIndex, side] of source.sides.entries()) {
       const rate = capped(srcRates[sideIndex] ?? 0, belt, `${source.id} join`);
@@ -1715,11 +1809,9 @@ function layLinkMulti(
       streamX = joinX - SPLIT / 2;
     }
     if (placeSurplus) {
-      const liftAt = slotX(slot);
-      const splitX = (streamX + liftAt) / 2;
-      layFeedSurplus(draft, source, streamZ, walkY(source.floor), y, streamX, liftAt, splitX);
+      const splitX = liftAt - 6;
+      layFeedSurplus(draft, source, meetZ, walkY(source.floor), y, streamX, liftAt, splitX);
       streamX = liftAt;
-      streamZ = streamZ;
     }
   } else {
     let extra = Math.max(0, output - sent);
@@ -1742,28 +1834,28 @@ function layLinkMulti(
       if (Math.abs(x - joinX) > 1e-6) {
         addBelt(draft, `${source.id}-join-out-s${sideIndex}-l${lane}`, { x, y, z }, { x: joinX, y, z }, flow);
       }
-      if (Math.abs(z) > 1e-6) {
-        addBelt(draft, `${source.id}-join-z-s${sideIndex}-l${lane}`, { x: joinX, y, z }, { x: joinX, y, z: 0 }, flow);
+      if (Math.abs(z - meetZ) > 1e-6) {
+        addBelt(draft, `${source.id}-join-z-s${sideIndex}-l${lane}`, { x: joinX, y, z }, { x: joinX, y, z: meetZ }, flow);
       }
     }
     draft.solids.push({
       id: `${source.id}-join-${dest.id}-l${lane}`,
       kind: "merger",
       floorId: source.floor.id,
-      base: { x: joinX, y: walkY(source.floor), z: 0 },
+      base: { x: joinX, y: walkY(source.floor), z: meetZ },
       size: { x: SPLIT, y: 1, z: SPLIT },
     });
     streamX = joinX - SPLIT / 2;
-    streamZ = 0;
+    streamZ = meetZ;
   }
   const carried = capped(output <= belt + 1e-6 ? output : sent, belt, `${source.id} to ${dest.id}`);
   const arrived = liftColumn(
-    draft, source, dest, streamX, streamZ, slotX(slot), item, carried,
+    draft, source, dest, streamX, streamZ, liftAt, item, carried,
     `${source.id}-to-${dest.id}-l${lane}`,
     placeSurplus,
+    claimed.slot,
   );
   deliverToDest(draft, dest, lane, arrived.exitX, arrived.exitZ, item, dstRates, belt, carried);
-  return 1;
 }
 
 /** One trunk cannot carry both sides' recipe demand. Share whatever actually arrived. */
@@ -1813,7 +1905,7 @@ function layLinearMulti(draft: Draft, plan: ChainPlan, rows: RowSpec[], apron: n
   const first = rows[0];
   const ground = first?.floor;
   if (!first || !ground) return;
-  if (first.doubled) layFeedMulti(draft, plan, first, 0, apron, ground, 0);
+  if (first.doubled) layFeedMulti(draft, plan, first, 0, apron, ground);
   else {
     const y0 = beltCenterY(first.floor);
     const oreZ = first.laneZ[0] ?? INPUT_Z;
@@ -1829,7 +1921,6 @@ function layLinearMulti(draft: Draft, plan: ChainPlan, rows: RowSpec[], apron: n
       position: { x: -apron * TILE + 2, y: walkY(first.floor) + 2.2, z: oreZ },
     });
   }
-  let slot = 0;
   const seen = new Set<string>();
   for (let index = 0; index < rows.length - 1; index += 1) {
     const lower = rows[index];
@@ -1843,7 +1934,7 @@ function layLinearMulti(draft: Draft, plan: ChainPlan, rows: RowSpec[], apron: n
     }
     const place = lower.surplusPerMin > SURPLUS_EPSILON && !seen.has(lower.id);
     if (place) seen.add(lower.id);
-    slot += layLinkMulti(draft, plan, lower, upper, 0, slot, lowerStage, upperStage.inputPerMin, place);
+    layLinkMulti(draft, plan, lower, upper, 0, lowerStage, upperStage.inputPerMin, place);
   }
   const last = rows[rows.length - 1];
   const made = plan.stages[plan.stages.length - 1]?.outputPerMin ?? 0;
@@ -1856,7 +1947,6 @@ function layJoinedMulti(draft: Draft, plan: ChainPlan, rows: RowSpec[], apron: n
   const goal = rows[rows.length - 1];
   const ground = rows[0]?.floor;
   if (!goal || !ground) return;
-  let slot = 0;
   const seen = new Set<string>();
   for (const row of rows) {
     const stage = plan.stages[row.stageIndex];
@@ -1869,11 +1959,10 @@ function layJoinedMulti(draft: Draft, plan: ChainPlan, rows: RowSpec[], apron: n
         if (!row.doubled) {
           if (row.stageIndex === 0) layGroundFeed(draft, row, lane, apron, input.itemId, drawn);
           else {
-            layUpperFeed(draft, row, lane, slot, apron, input.itemId, drawn, ground);
-            slot += 1;
+            layUpperFeed(draft, row, lane, apron, input.itemId, drawn, ground);
           }
         } else {
-          slot += layFeedMulti(draft, plan, row, lane, apron, ground, slot);
+          layFeedMulti(draft, plan, row, lane, apron, ground);
         }
         continue;
       }
@@ -1883,13 +1972,12 @@ function layJoinedMulti(draft: Draft, plan: ChainPlan, rows: RowSpec[], apron: n
       if (!source.doubled && !row.doubled) {
         const place = source.surplusPerMin > SURPLUS_EPSILON && !seen.has(source.id);
         if (place) seen.add(source.id);
-        layJoinedLink(draft, source, row, lane, slot, sourceStage, drawn, place);
-        slot += 1;
+        layJoinedLink(draft, source, row, lane, sourceStage, drawn, place);
         continue;
       }
       const place = source.surplusPerMin > SURPLUS_EPSILON && !seen.has(source.id);
       if (place) seen.add(source.id);
-      slot += layLinkMulti(draft, plan, source, row, lane, slot, sourceStage, drawn, place);
+      layLinkMulti(draft, plan, source, row, lane, sourceStage, drawn, place);
     }
   }
   const made = plan.stages[plan.stages.length - 1]?.outputPerMin ?? 0;

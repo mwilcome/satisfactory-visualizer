@@ -7,7 +7,9 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <div id="viewport"></div>
+    <div id="viewport">
+      <aside id="detail" hidden></aside>
+    </div>
     <aside id="panel">
       <p class="eyebrow">Satisfactory visualizer</p>
       <h1 id="title">Screws</h1>
@@ -27,7 +29,7 @@
         <ul id="item-list" role="listbox" hidden></ul>
       </div>
       <fieldset id="alt-field">
-        <legend>Alt recipes</legend>
+        <legend>Recipes</legend>
         <label class="save-row">
           Save
           <input id="save-file" type="file" accept=".sav,application/octet-stream" />
@@ -55,7 +57,7 @@
       </fieldset>
       <button id="generate" type="button">Generate</button>
       <div id="summary" aria-live="polite"></div>
-      <p class="hint">Drag to orbit. Scroll to zoom. No walking camera yet.</p>
+      <p class="hint">Drag to orbit. Scroll to zoom. Click a machine for its recipe. No walking camera yet.</p>
     </aside>
     <script type="module" src="/src/main.ts"></script>
   </body>

@@ -32,15 +32,11 @@ export function standardRecipe(itemId: string): Recipe | undefined {
   const supported = all.filter((recipe) => SUPPORTED.has(recipe.buildingId) && !recipe.alternate);
   const pool = supported.length > 0 ? supported : all.filter((recipe) => !recipe.alternate);
   const pick = pool.length > 0 ? pool : all;
-  // Several standard recipes: prefer one a Mk1 belt can feed, then the smallest output.
-  // Biomass would otherwise sort to Alien Protein (1500 / min) ahead of Mycelia.
-  const fitsMk1 = pick.filter((recipe) => recipe.inputs.every((stack) => stack.perMin <= 60));
-  const ranked = fitsMk1.length > 0 ? fitsMk1 : pick;
-  return [...ranked].sort((a, b) => {
-    if (fitsMk1.length > 0) {
-      const byOutput = (a.outputs[0]?.perMin ?? 0) - (b.outputs[0]?.perMin ?? 0);
-      if (Math.abs(byOutput) > 1e-9) return byOutput;
-    }
+  // Several standard recipes for one item: start from the smallest batch.
+  // Biomass then opens on Leaves. Wood, Mycelia, and Alien Protein stay in the list.
+  return [...pick].sort((a, b) => {
+    const byOutput = (a.outputs[0]?.perMin ?? 0) - (b.outputs[0]?.perMin ?? 0);
+    if (Math.abs(byOutput) > 1e-9) return byOutput;
     return (MACHINE_RANK[a.buildingId] ?? 9) - (MACHINE_RANK[b.buildingId] ?? 9) || a.name.localeCompare(b.name);
   })[0];
 }
@@ -199,11 +195,22 @@ export interface AltEntry {
   placeable: boolean;
 }
 
-/** Every alternate in the snapshot. Ones this phase cannot place stay listed. */
+/** Alternates, plus every standard recipe when an item has more than one. */
 export function altEntries(): AltEntry[] {
   const supported = supportedItemIds();
-  return Object.values(RECIPES)
-    .filter((recipe) => recipe.alternate)
+  const recipes = Object.values(RECIPES);
+  const standardCount = new Map<string, number>();
+  for (const recipe of recipes) {
+    if (recipe.alternate) continue;
+    const itemId = recipe.outputs[0]?.itemId ?? "";
+    standardCount.set(itemId, (standardCount.get(itemId) ?? 0) + 1);
+  }
+  return recipes
+    .filter((recipe) => {
+      if (recipe.alternate) return true;
+      const itemId = recipe.outputs[0]?.itemId ?? "";
+      return (standardCount.get(itemId) ?? 0) > 1;
+    })
     .map((recipe) => {
       const itemId = recipe.outputs[0]?.itemId ?? "";
       const inputsOk = recipe.inputs.every((input) => {

@@ -17,6 +17,8 @@ import {
 } from "../data/parts";
 import type { Plant, Solid, Vec3 } from "../layout/types";
 
+export type PickHandler = (solid: Solid | null) => void;
+
 const BELT_H = 1;
 const BELT_W = 2;
 
@@ -36,7 +38,9 @@ export class FactoryView {
   private readonly prototypes: Map<string, THREE.Group>;
   private plant: THREE.Group | null = null;
   private readonly sun: THREE.DirectionalLight;
+  private readonly raycaster = new THREE.Raycaster();
   private disposed = false;
+  onPick: PickHandler | null = null;
 
   constructor(host: HTMLElement) {
     const canvas = document.createElement("canvas");
@@ -134,6 +138,7 @@ export class FactoryView {
     this.resize(host);
     const observer = new ResizeObserver(() => this.resize(host));
     observer.observe(host);
+    this.bindPick(canvas);
 
     const tick = () => {
       if (this.disposed) return;
@@ -173,6 +178,29 @@ export class FactoryView {
     this.scene.remove(this.plant);
     disposeTree(this.plant);
     this.plant = null;
+  }
+
+  private bindPick(canvas: HTMLCanvasElement): void {
+    let downX = 0;
+    let downY = 0;
+    canvas.addEventListener("pointerdown", (event) => {
+      downX = event.clientX;
+      downY = event.clientY;
+    });
+    canvas.addEventListener("pointerup", (event) => {
+      if (Math.hypot(event.clientX - downX, event.clientY - downY) > 5) return;
+      const rect = canvas.getBoundingClientRect();
+      const ndc = new THREE.Vector2(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1,
+      );
+      this.raycaster.setFromCamera(ndc, this.camera);
+      const hits = this.plant ? this.raycaster.intersectObject(this.plant, true) : [];
+      const solid = hits
+        .map((hit) => hit.object.userData.pick as Solid | undefined)
+        .find((pick) => pick?.kind === "machine");
+      this.onPick?.(solid ?? null);
+    });
   }
 
   private resize(host: HTMLElement): void {
@@ -236,6 +264,7 @@ export class FactoryView {
       if (!proto) continue;
       const mesh = proto.clone(true);
       placeBase(mesh, solid);
+      tagPick(mesh, solid);
       root.add(mesh);
     }
   }
@@ -314,6 +343,12 @@ function groupFromParts(
 
 function placeBase(group: THREE.Object3D, solid: Solid): void {
   group.position.set(solid.base.x, solid.base.y, solid.base.z);
+}
+
+function tagPick(root: THREE.Object3D, solid: Solid): void {
+  root.traverse((obj) => {
+    obj.userData.pick = solid;
+  });
 }
 
 function beltMesh(

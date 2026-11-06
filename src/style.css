@@ -36,6 +36,29 @@ body {
   pointer-events: none;
 }
 
+#detail {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  z-index: 2;
+  max-width: 320px;
+  padding: 12px 14px;
+  background: rgba(22, 24, 26, 0.94);
+  border: 1px solid rgba(244, 239, 228, 0.2);
+  color: var(--ink);
+}
+
+#detail h2 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+
+#detail p {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .tag {
   font: 600 12px/1.2 "Segoe UI", sans-serif;
   color: #1c1408;
