@@ -329,6 +329,15 @@ export function stageBelts(recipe: Recipe, perMin: number): StageBeltPlan {
     fatInputSlot: null,
     fatItemId: items[fatIndex] ?? "",
   };
+  // One machine can run when every input fits the belt. Output past the mark overflows.
+  if (
+    output &&
+    single < 1 &&
+    recipe.inputs.every((stack) => stack.perMin <= perMin + 1e-9) &&
+    output.perMin > perMin + 1e-9
+  ) {
+    return { ...oneRow, machines: 1, fatItemId: output.itemId };
+  }
   if (!output || single < 1 || fat + 1e-9 < thin * DOUBLE_RATIO) return oneRow;
   const perFat = Math.floor((perMin + 1e-9) / fat);
   let doubled = perFat * 2;

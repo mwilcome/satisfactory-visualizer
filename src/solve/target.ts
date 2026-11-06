@@ -32,9 +32,17 @@ export function standardRecipe(itemId: string): Recipe | undefined {
   const supported = all.filter((recipe) => SUPPORTED.has(recipe.buildingId) && !recipe.alternate);
   const pool = supported.length > 0 ? supported : all.filter((recipe) => !recipe.alternate);
   const pick = pool.length > 0 ? pool : all;
-  return [...pick].sort(
-    (a, b) => (MACHINE_RANK[a.buildingId] ?? 9) - (MACHINE_RANK[b.buildingId] ?? 9) || a.name.localeCompare(b.name),
-  )[0];
+  // Several standard recipes: prefer one a Mk1 belt can feed, then the smallest output.
+  // Biomass would otherwise sort to Alien Protein (1500 / min) ahead of Mycelia.
+  const fitsMk1 = pick.filter((recipe) => recipe.inputs.every((stack) => stack.perMin <= 60));
+  const ranked = fitsMk1.length > 0 ? fitsMk1 : pick;
+  return [...ranked].sort((a, b) => {
+    if (fitsMk1.length > 0) {
+      const byOutput = (a.outputs[0]?.perMin ?? 0) - (b.outputs[0]?.perMin ?? 0);
+      if (Math.abs(byOutput) > 1e-9) return byOutput;
+    }
+    return (MACHINE_RANK[a.buildingId] ?? 9) - (MACHINE_RANK[b.buildingId] ?? 9) || a.name.localeCompare(b.name);
+  })[0];
 }
 
 export interface RecipeChoice {

@@ -44,7 +44,8 @@ export function layoutIssues(plant: Plant): string[] {
       issues.push(`${stage.stageId} input total drifted`);
     }
     const outputCap = stage.doubled && stage.fatIsOutput ? plan.beltPerMin * 2 : plan.beltPerMin;
-    if (stage.outputPerMin > outputCap + 1e-6) issues.push(`${stage.stageId} output exceeds the belt`);
+    const carriedOut = stage.outputPerMin - stage.surplusPerMin;
+    if (carriedOut > outputCap + 1e-6) issues.push(`${stage.stageId} output exceeds the belt`);
     for (const consumer of plan.stages) {
       consumer.inputFrom.forEach((source, slot) => {
         if (source !== index) return;
@@ -67,10 +68,11 @@ export function layoutIssues(plant: Plant): string[] {
       }
     }
     const overflow = plant.belts.filter((belt) => belt.role === "overflow-stub" && belt.rowId === stage.stageId);
-    const expectedSurplus =
-      stage.drawnPerMin > SURPLUS_EPSILON && stage.outputPerMin > stage.drawnPerMin + SURPLUS_EPSILON
-        ? stage.outputPerMin - stage.drawnPerMin
-        : 0;
+    const beltCarry = stage.doubled && stage.fatIsOutput ? plan.beltPerMin * 2 : plan.beltPerMin;
+    const wanted =
+      stage.drawnPerMin > SURPLUS_EPSILON ? Math.min(stage.drawnPerMin, stage.outputPerMin) : stage.outputPerMin;
+    const kept = Math.min(wanted, beltCarry);
+    const expectedSurplus = stage.outputPerMin - kept > SURPLUS_EPSILON ? stage.outputPerMin - kept : 0;
     if (Math.abs(stage.surplusPerMin - expectedSurplus) > 1e-6) issues.push(`${stage.stageId} surplus drifted`);
     const surplus = stage.surplusPerMin;
     const smart = plant.solids.find((solid) => solid.kind === "smartSplitter" && solid.rowId === stage.stageId);
@@ -84,7 +86,9 @@ export function layoutIssues(plant: Plant): string[] {
         overflowSum += belt.designPerMin;
       }
       if (Math.abs(overflowSum - surplus) > 1e-6) issues.push(`${stage.stageId} overflow is not the surplus rate`);
-      if (!smart || !bank) issues.push(`${stage.stageId} overflow path is missing a building`);
+      if (!smart || (stage.drawnPerMin > SURPLUS_EPSILON && !bank)) {
+        issues.push(`${stage.stageId} overflow path is missing a building`);
+      }
       if (plant.solids.some((solid) => solid.kind === "sink" && solid.rowId === stage.stageId)) {
         issues.push(`${stage.stageId} draws an Awesome Sink`);
       }

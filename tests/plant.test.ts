@@ -307,7 +307,7 @@ describe("assembler and foundry", () => {
     expect(layoutIssues(buildChainPlant(plan))).toEqual([]);
   });
 
-  it("builds a foundry stair from two feed belts and blocks alloy on Mk1", () => {
+  it("builds a foundry stair from two feed belts and overflows alloy on Mk1", () => {
     const steel = solveChain("foundry-steel", 3);
     expect(steel.stages.map((stage) => stage.machines)).toEqual([6]);
     const plant = buildChainPlant(steel);
@@ -320,7 +320,10 @@ describe("assembler and foundry", () => {
     expect(new Set(inputs.map((belt) => belt.from.y)).size).toBe(2);
 
     const alloy = solveChain("foundry-alloy", 1);
-    expect(alloy.blockedReason).toMatch(/Mk1/);
+    expect(alloy.blockedReason).toBeNull();
+    expect(alloy.stages.map((stage) => stage.machines)).toEqual([1]);
+    expect(alloy.stages[0]?.surplusPerMin).toBe(15);
+    expect(layoutIssues(buildChainPlant(alloy))).toEqual([]);
     expect(solveChain("foundry-alloy", 2).stages.map((stage) => stage.machines)).toEqual([2]);
     expect(layoutIssues(buildChainPlant(solveChain("foundry-alloy", 4)))).toEqual([]);
   });

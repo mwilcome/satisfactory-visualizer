@@ -102,10 +102,27 @@ function showItem(next: Selection): void {
   renderSummary(summary, plant);
 }
 
+function refreshBeltMarks(): void {
+  for (const mk of [1, 2, 3, 4] as const) {
+    const input = document.querySelector<HTMLInputElement>(`input[name="mk"][value="${mk}"]`);
+    const label = input?.closest("label");
+    if (!input || !label) continue;
+    let reason: string | null = null;
+    try {
+      reason = solveTarget(selection.itemId, mk, selection.recipes).blockedReason;
+    } catch (error) {
+      reason = error instanceof Error ? error.message : "This belt cannot build that item.";
+    }
+    input.disabled = reason !== null;
+    label.title = reason ?? "";
+  }
+}
+
 function syncForm(): void {
   const item = ITEMS[selection.itemId];
   const picked = selection.recipes[selection.itemId];
   const goal = (picked && RECIPES[picked]) || standardRecipe(selection.itemId);
+  refreshBeltMarks();
   title.textContent = item?.name ?? selection.itemId;
   const inputs = goal?.inputs.map((stack) => itemName(stack.itemId)).join(" + ") ?? "";
   lede.textContent = goal ? `${goal.name}. ${inputs} in. Press Generate after you change the item, alts, or belt.` : "Search for a part.";
@@ -145,6 +162,7 @@ function renderAlts(): void {
       selection = { ...selection, recipes };
       persist();
       renderAlts();
+      refreshBeltMarks();
     });
     const name = document.createElement("span");
     name.textContent = alt.placeable ? alt.name : `${alt.name} (needs a later building)`;
@@ -244,9 +262,16 @@ function renderSummary(host: HTMLElement, plant: Plant): void {
   lines.push(`Mk${plan.beltMk} belt · ${plan.beltPerMin} items/min on every line`);
   for (const stage of plan.stages) lines.push(...stageLines(stage));
   for (const stage of plan.stages) {
-    if (stage.drawnPerMin <= 0) continue;
     const recipe = RECIPES[stage.recipeId];
     const item = itemName(recipe.outputs[0]?.itemId ?? "");
+    if (stage.surplusPerMin > SURPLUS_EPSILON && stage.drawnPerMin <= 0) {
+      const kept = stage.outputPerMin - stage.surplusPerMin;
+      lines.push(
+        `Overflow ${trim(stage.surplusPerMin)} ${item} / min on floor ${plan.stages.indexOf(stage) + 1}. The belt keeps ${trim(kept)}. A smart splitter sends the rest out to the sink.`,
+      );
+      continue;
+    }
+    if (stage.drawnPerMin <= 0) continue;
     if (stage.surplusPerMin > SURPLUS_EPSILON) {
       lines.push(
         `Surplus ${trim(stage.surplusPerMin)} ${item} / min. Feed end: smart splitter, Any to the bank, Overflow out (to sink). Clocks stay at 100%.`,

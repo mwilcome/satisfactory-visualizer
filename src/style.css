@@ -183,6 +183,15 @@ legend {
   border-color: var(--amber);
 }
 
+.marks label:has(input:disabled) {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.marks label:has(input:disabled) input {
+  cursor: not-allowed;
+}
+
 #summary {
   padding-top: 4px;
 }

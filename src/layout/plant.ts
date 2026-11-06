@@ -10,6 +10,7 @@ import {
   STORY_WALLS,
   WALKWAY,
   inputLaneOutboardM,
+  beltByMk,
   isBuildingId,
   storyClearanceM,
   type BeltMk,
@@ -20,6 +21,7 @@ import {
 import { INDUSTRIAL_PORT_ENTRY, INDUSTRIAL_PORT_Y } from "../data/parts";
 import { isLinearWiring, type ChainId, type InputSource } from "../data/chains";
 import { SURPLUS_EPSILON, solveChain, type ChainPlan, type StagePlan } from "../solve/chain";
+import { beltAabb, overlaps } from "./aabb";
 import type { Belt, Floor, Plant, PlantLabel, Ramp, Solid, Vec3, WalkCorridor } from "./types";
 
 /**
@@ -487,7 +489,12 @@ function laySide(
       `${row.id}-out-port-${rowIndex}`,
       { x, y: yBelt, z: portOutZ },
       { x, y: yBelt, z: side.mergerZ - side.sign * (SPLIT / 2) },
-      { itemId: row.outputItem, role: "output-port", rowId: row.id, designPerMin: row.outputPerMin },
+      {
+        itemId: row.outputItem,
+        role: "output-port",
+        rowId: row.id,
+        designPerMin: Math.min(row.outputPerMin, beltByMk(draft.mk).perMin),
+      },
     );
 
     if (index < side.count - 1) {
@@ -593,6 +600,39 @@ function layRow(draft: Draft, row: RowSpec, openEndX: number, apron: number): vo
  * Any continues toward the industrial storage. Overflow goes +z straight into the sink.
  * Floors are spaced in x so a 24 m sink does not sit on the next floor's belt.
  */
+/** What keeps going after Overflow is peeled. Never more than one belt. */
+function forwardRate(draft: Draft, row: RowSpec): number {
+  const belt = beltByMk(draft.mk).perMin;
+  const made = row.count * row.outputPerMin;
+  const kept = Math.max(0, made - row.surplusPerMin);
+  return Math.min(belt, kept);
+}
+
+function addOverflowRun(
+  draft: Draft,
+  row: RowSpec,
+  id: string,
+  x: number,
+  y: number,
+  z: number,
+): void {
+  const belt = beltByMk(draft.mk).perMin;
+  let left = row.surplusPerMin;
+  let index = 0;
+  while (left > 1e-6) {
+    const rate = Math.min(left, belt);
+    addBelt(
+      draft,
+      index === 0 ? id : `${id}-${index}`,
+      { x, y: y + index * 2, z },
+      { x, y: y + index * 2, z: 40 },
+      { itemId: row.outputItem, role: "overflow-stub", rowId: row.id, designPerMin: rate },
+    );
+    left -= rate;
+    index += 1;
+  }
+}
+
 function layFeedSurplus(
   draft: Draft,
   row: RowSpec,
@@ -603,27 +643,18 @@ function layFeedSurplus(
   liftXPos: number,
   splitX: number,
 ): void {
-  const overflowEndZ = 40;
-  const flow = {
-    itemId: row.outputItem,
-    role: "overflow-stub" as const,
-    rowId: row.id,
-    designPerMin: row.surplusPerMin,
-  };
+  const onward = forwardRate(draft, row);
   const main = {
     itemId: row.outputItem,
     role: "stage-link" as const,
     rowId: row.id,
-    designPerMin: row.outputPerMin,
+    designPerMin: onward,
   };
+  const fromLeft = firstFace < splitX;
+  const inFace = splitX + (fromLeft ? -SPLIT / 2 : SPLIT / 2);
+  const outFace = splitX + (fromLeft ? SPLIT / 2 : -SPLIT / 2);
 
-  addBelt(
-    draft,
-    `${row.id}-to-split`,
-    { x: firstFace, y: yBelt, z: mergerZ },
-    { x: splitX + SPLIT / 2, y: yBelt, z: mergerZ },
-    main,
-  );
+  addBelt(draft, `${row.id}-to-split`, { x: firstFace, y: yBelt, z: mergerZ }, { x: inFace, y: yBelt, z: mergerZ }, main);
   draft.solids.push({
     id: `${row.id}-smart`,
     kind: "smartSplitter",
@@ -632,20 +663,8 @@ function layFeedSurplus(
     base: { x: splitX, y: yWalk, z: mergerZ },
     size: { x: SPLIT, y: BUILDINGS.smartSplitter.height, z: SPLIT },
   });
-  addBelt(
-    draft,
-    `${row.id}-any-to-lift`,
-    { x: splitX - SPLIT / 2, y: yBelt, z: mergerZ },
-    { x: liftXPos, y: yBelt, z: mergerZ },
-    main,
-  );
-  addBelt(
-    draft,
-    `${row.id}-overflow-to-sink`,
-    { x: splitX, y: yBelt, z: mergerZ + SPLIT / 2 },
-    { x: splitX, y: yBelt, z: overflowEndZ },
-    flow,
-  );
+  addBelt(draft, `${row.id}-any-to-lift`, { x: outFace, y: yBelt, z: mergerZ }, { x: liftXPos, y: yBelt, z: mergerZ }, main);
+  addOverflowRun(draft, row, `${row.id}-overflow-to-sink`, splitX, yBelt, mergerZ + SPLIT / 2);
   draft.labels.push(
     {
       id: `${row.id}-smart-label`,
@@ -660,7 +679,7 @@ function layFeedSurplus(
     {
       id: `${row.id}-overflow-label`,
       text: "Overflow out (to sink)",
-      position: { x: splitX, y: yWalk + 2.4, z: overflowEndZ },
+      position: { x: splitX, y: yWalk + 2.4, z: 40 },
     },
   );
 }
@@ -841,7 +860,7 @@ function layJoinedLink(
     itemId: item,
     role: "stage-link" as const,
     rowId: source.id,
-    designPerMin: sourceStage.outputPerMin,
+    designPerMin: placeSurplus ? forwardRate(draft, source) : sourceStage.outputPerMin,
   };
 
   addFoundation(draft, source.floor, tileIndex(x), tileIndex(LIFT_Z));
@@ -989,9 +1008,31 @@ function routeToLane(
 function layProductExit(draft: Draft, row: RowSpec, made: number): void {
   const y = beltCenterY(row.floor);
   const firstFace = rowFaceX(row);
-  const flow = { itemId: row.outputItem, role: "product-output" as const, rowId: row.id, designPerMin: made };
-  addBelt(draft, "product-apron", { x: firstFace, y, z: row.mergerZ }, { x: EXIT_X, y, z: row.mergerZ }, flow);
-  addBelt(draft, "product-exit", { x: EXIT_X, y, z: row.mergerZ }, { x: EXIT_X, y, z: EXIT_Z }, flow);
+  const kept = Math.min(beltByMk(draft.mk).perMin, Math.max(0, made - row.surplusPerMin));
+  const flow = { itemId: row.outputItem, role: "product-output" as const, rowId: row.id, designPerMin: kept };
+  if (row.surplusPerMin > SURPLUS_EPSILON) {
+    const splitX = -6;
+    const yWalk = walkY(row.floor);
+    addBelt(draft, "product-apron", { x: firstFace, y, z: row.mergerZ }, { x: splitX + SPLIT / 2, y, z: row.mergerZ }, flow);
+    draft.solids.push({
+      id: `${row.id}-smart`,
+      kind: "smartSplitter",
+      floorId: row.floor.id,
+      rowId: row.id,
+      base: { x: splitX, y: yWalk, z: row.mergerZ },
+      size: { x: SPLIT, y: BUILDINGS.smartSplitter.height, z: SPLIT },
+    });
+    addBelt(draft, "product-any", { x: splitX - SPLIT / 2, y, z: row.mergerZ }, { x: EXIT_X, y, z: row.mergerZ }, flow);
+    addBelt(draft, "product-exit", { x: EXIT_X, y, z: row.mergerZ }, { x: EXIT_X, y, z: EXIT_Z }, flow);
+    addOverflowRun(draft, row, `${row.id}-overflow-to-sink`, splitX, y, row.mergerZ + SPLIT / 2);
+    draft.labels.push(
+      { id: `${row.id}-smart-label`, text: "Smart splitter", position: { x: splitX, y: yWalk + 2.6, z: row.mergerZ - 3 } },
+      { id: `${row.id}-overflow-label`, text: "Overflow out (to sink)", position: { x: splitX, y: yWalk + 2.4, z: 40 } },
+    );
+  } else {
+    addBelt(draft, "product-apron", { x: firstFace, y, z: row.mergerZ }, { x: EXIT_X, y, z: row.mergerZ }, flow);
+    addBelt(draft, "product-exit", { x: EXIT_X, y, z: row.mergerZ }, { x: EXIT_X, y, z: EXIT_Z }, flow);
+  }
   addFoundation(draft, row.floor, tileIndex(EXIT_X), tileIndex(EXIT_Z));
   draft.labels.push({
     id: "label-product",
@@ -1039,29 +1080,8 @@ function layLogistics(draft: Draft, plan: ChainPlan, rows: RowSpec[], apron: num
     layStageLink(draft, lower, upper, lowerStage, upperStage, index, rows.length - 1, storage);
   }
 
-  const yTop = beltCenterY(last.floor);
   const made = plan.stages[plan.stages.length - 1]?.outputPerMin ?? 0;
-  const exitZ = last.mergerZ;
-  addBelt(
-    draft,
-    "product-apron",
-    { x: rowFaceX(last), y: yTop, z: exitZ },
-    { x: EXIT_X, y: yTop, z: exitZ },
-    { itemId: last.outputItem, role: "product-output", rowId: last.id, designPerMin: made },
-  );
-  addBelt(
-    draft,
-    "product-exit",
-    { x: EXIT_X, y: yTop, z: exitZ },
-    { x: EXIT_X, y: yTop, z: EXIT_Z },
-    { itemId: last.outputItem, role: "product-output", rowId: last.id, designPerMin: made },
-  );
-  addFoundation(draft, last.floor, tileIndex(EXIT_X), tileIndex(EXIT_Z));
-  draft.labels.push({
-    id: "label-product",
-    text: `${itemName(last.outputItem)} out`,
-    position: { x: EXIT_X, y: walkY(last.floor) + 2.4, z: EXIT_Z },
-  });
+  layProductExit(draft, last, made);
 }
 
 function layStageLink(
@@ -1085,6 +1105,8 @@ function layStageLink(
 
   addFoundation(draft, lower.floor, tileIndex(x), tileIndex(LIFT_Z));
 
+  const linkRate =
+    lower.surplusPerMin > SURPLUS_EPSILON ? forwardRate(draft, lower) : lowerStage.outputPerMin;
   if (lower.surplusPerMin > SURPLUS_EPSILON) {
     layFeedSurplus(draft, lower, mergerZ, walkY(lower.floor), yLower, firstFace, x, feedSplitX(gap, gaps));
   } else {
@@ -1093,7 +1115,7 @@ function layStageLink(
       `${lower.id}-to-lift-x`,
       { x: firstFace, y: yLower, z: mergerZ },
       { x, y: yLower, z: mergerZ },
-      { itemId: item, role: "stage-link", rowId: lower.id, designPerMin: lowerStage.outputPerMin },
+      { itemId: item, role: "stage-link", rowId: lower.id, designPerMin: linkRate },
     );
   }
   addBelt(
@@ -1101,7 +1123,7 @@ function layStageLink(
     `${lower.id}-to-lift-z`,
     { x, y: yLower, z: mergerZ },
     { x, y: yLower, z: LIFT_Z - LIFT.length / 2 },
-    { itemId: item, role: "stage-link", rowId: lower.id, designPerMin: lowerStage.outputPerMin },
+    { itemId: item, role: "stage-link", rowId: lower.id, designPerMin: linkRate },
   );
 
   const liftHeight = walkY(upper.floor) + BELT.height - walkY(lower.floor);
@@ -1128,7 +1150,7 @@ function layStageLink(
     `${upper.id}-from-lift`,
     { x, y: yUpper, z: LIFT_Z - LIFT.length / 2 },
     { x, y: yUpper, z: INPUT_Z },
-    { itemId: item, role: "stage-link", rowId: upper.id, designPerMin: lowerStage.outputPerMin },
+    { itemId: item, role: "stage-link", rowId: upper.id, designPerMin: linkRate },
   );
   const faceIn = BUFFER_X - storage.length / 2;
   const faceOut = BUFFER_X + storage.length / 2;
@@ -1138,7 +1160,7 @@ function layStageLink(
     itemId: item,
     role: "stage-link" as const,
     rowId: upper.id,
-    designPerMin: lowerStage.outputPerMin,
+    designPerMin: linkRate,
   };
   addBelt(
     draft,
@@ -1382,7 +1404,8 @@ function layProductMulti(draft: Draft, row: RowSpec, made: number): void {
     }
     return;
   }
-  const joinZ = 0;
+  // Input banks sit on z = 0. Meet on the clear apron so the product belts do not cut them.
+  const joinZ = 10;
   const meetX = -4;
   for (const [sideIndex, side] of row.sides.entries()) {
     const rate = side.count * row.outputPerMin;
@@ -1390,8 +1413,10 @@ function layProductMulti(draft: Draft, row: RowSpec, made: number): void {
     const clear = apronZ(side.mergerZ);
     addBelt(draft, `product-join-x-s${sideIndex}`, { x: face, y, z: side.mergerZ }, { x: meetX, y, z: side.mergerZ }, flow);
     addBelt(draft, `product-join-z-s${sideIndex}`, { x: meetX, y, z: side.mergerZ }, { x: meetX, y, z: clear }, flow);
-    addBelt(draft, `product-join-out-s${sideIndex}`, { x: meetX, y, z: clear }, { x: JOIN_X, y, z: clear }, flow);
-    addBelt(draft, `product-join-in-s${sideIndex}`, { x: JOIN_X, y, z: clear }, { x: JOIN_X, y, z: joinZ }, flow);
+    if (Math.abs(clear - joinZ) > 1e-6) {
+      addBelt(draft, `product-join-cross-s${sideIndex}`, { x: meetX, y, z: clear }, { x: meetX, y, z: joinZ }, flow);
+    }
+    addBelt(draft, `product-join-out-s${sideIndex}`, { x: meetX, y, z: joinZ }, { x: JOIN_X, y, z: joinZ }, flow);
   }
   draft.solids.push({
     id: `${row.id}-product-merge`,
@@ -1424,7 +1449,6 @@ function placeSideSurplus(
   const face = rowFaceX(row);
   const splitX = -12 - sideIndex * 8;
   const kept = capped(side.count * row.outputPerMin - overflow, belt, `${row.id} kept`);
-  const flow = { itemId: row.outputItem, role: "overflow-stub" as const, rowId: row.id, designPerMin: overflow };
   const onward = { itemId: row.outputItem, role: "stage-link" as const, rowId: row.id, designPerMin: kept };
   addBelt(draft, `${row.id}-s${sideIndex}-to-split`, { x: face, y, z: side.mergerZ }, { x: splitX + SPLIT / 2, y, z: side.mergerZ }, onward);
   draft.solids.push({
@@ -1435,13 +1459,20 @@ function placeSideSurplus(
     base: { x: splitX, y: yWalk, z: side.mergerZ },
     size: { x: SPLIT, y: BUILDINGS.smartSplitter.height, z: SPLIT },
   });
-  addBelt(
-    draft,
-    `${row.id}-s${sideIndex}-overflow-to-sink`,
-    { x: splitX, y, z: side.mergerZ + SPLIT / 2 },
-    { x: splitX, y, z: 40 },
-    flow,
-  );
+  let left = overflow;
+  let index = 0;
+  while (left > 1e-6) {
+    const rate = Math.min(left, belt);
+    addBelt(
+      draft,
+      index === 0 ? `${row.id}-s${sideIndex}-overflow-to-sink` : `${row.id}-s${sideIndex}-overflow-to-sink-${index}`,
+      { x: splitX, y: y + index * 2, z: side.mergerZ + SPLIT / 2 },
+      { x: splitX, y: y + index * 2, z: 40 },
+      { itemId: row.outputItem, role: "overflow-stub", rowId: row.id, designPerMin: rate },
+    );
+    left -= rate;
+    index += 1;
+  }
   if (sideIndex === 0) {
     draft.labels.push(
       { id: `${row.id}-smart-label`, text: "Smart splitter", position: { x: splitX, y: yWalk + 2.6, z: side.mergerZ - 3 } },
@@ -1613,7 +1644,7 @@ function layLinkMulti(
       const overflow = placeSurplus ? (overflows[sideIndex] ?? 0) : 0;
       const kept = capped(src - overflow, belt, `${source.id} side ${sideIndex}`);
       let fromX = face;
-      if (overflow > SURPLUS_EPSILON) fromX = placeSideSurplus(draft, source, side, sideIndex, capped(overflow, belt, `${source.id} overflow`), belt);
+      if (overflow > SURPLUS_EPSILON) fromX = placeSideSurplus(draft, source, side, sideIndex, overflow, belt);
       else {
         addBelt(
           draft,
@@ -1637,7 +1668,8 @@ function layLinkMulti(
   if (source.sides.length === 1 && source.sides[0]) {
     const side = source.sides[0];
     const liftAt = slotX(slot);
-    const sideRate = capped(srcRates[0] ?? output, belt, `${source.id} output`);
+    const rawSide = srcRates[0] ?? output;
+    const sideRate = placeSurplus ? forwardRate(draft, source) : capped(rawSide, belt, `${source.id} output`);
     if (placeSurplus) {
       layFeedSurplus(draft, source, side.mergerZ, walkY(source.floor), y, face, liftAt, -10 - slot * 6);
     } else {
@@ -1683,9 +1715,10 @@ function layLinkMulti(
       streamX = joinX - SPLIT / 2;
     }
     if (placeSurplus) {
-      const splitX = -10;
-      layFeedSurplus(draft, source, streamZ, walkY(source.floor), y, streamX, slotX(slot), splitX);
-      streamX = slotX(slot);
+      const liftAt = slotX(slot);
+      const splitX = (streamX + liftAt) / 2;
+      layFeedSurplus(draft, source, streamZ, walkY(source.floor), y, streamX, liftAt, splitX);
+      streamX = liftAt;
       streamZ = streamZ;
     }
   } else {
@@ -1696,7 +1729,7 @@ function layLinkMulti(
       extra -= overflow;
       const kept = capped(src - overflow, belt, `${source.id} kept`);
       let fromX = face;
-      if (overflow > SURPLUS_EPSILON) fromX = placeSideSurplus(draft, source, side, sideIndex, capped(overflow, belt, `${source.id} overflow`), belt);
+      if (overflow > SURPLUS_EPSILON) fromX = placeSideSurplus(draft, source, side, sideIndex, overflow, belt);
       const clear = apronZ(side.mergerZ);
       const flow = { itemId: item, role: "stage-link" as const, rowId: source.id, designPerMin: kept };
       // Stay off the merger line once a smart splitter owns it. A run back through x = -4 cuts that splitter.
@@ -1759,7 +1792,8 @@ function deliverToDest(
     runToLane(draft, `${dest.id}-l${lane}`, dest, dest.sides[0], lane, exitX, exitZ, item, need, "input-manifold");
     return;
   }
-  const branchX = exitX + SPLIT / 2 + 2;
+  // The next slot's container starts 5 m past this one. A 4 m splitter fits that gap; the extra 2 m landed on the neighbor.
+  const branchX = exitX + SPLIT / 2;
   const trunk = capped(shares.reduce((sum, rate) => sum + rate, 0), belt, `${dest.id} ${item}`);
   addBelt(draft, `${dest.id}-l${lane}-branch-x`, { x: exitX, y, z: exitZ }, { x: branchX - SPLIT / 2, y, z: exitZ }, { ...flow, designPerMin: trunk });
   draft.solids.push({
@@ -1956,6 +1990,11 @@ function laySupports(
       const y0 = onLower ? walkY(lower) : lower.z;
       const height = top - y0;
       if (height <= 0) continue;
+      const column = {
+        min: { x: x - 0.7, y: y0, z: z - 0.7 },
+        max: { x: x + 0.7, y: top, z: z + 0.7 },
+      };
+      if (draft.belts.some((belt) => overlaps(column, beltAabb(belt)))) continue;
       draft.solids.push({
         id: `support-${x}-${z}`,
         kind: "support",

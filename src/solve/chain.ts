@@ -120,17 +120,22 @@ export function solveWired(
   if (!counted) {
     counted = propagate(stages, cap, goalCap, "underfed");
   }
-  if (!counted) throw new Error(`Chain ${chainId} has a stage nothing draws.`);
+  if (!counted) {
+    return { ...empty, blockedReason: "This chain has a stage that nothing draws." };
+  }
 
   const built: StagePlan[] = stages.map((stage, index) => {
     const machines = counted?.counts[index] ?? 0;
     const output = stage.recipe.outputs[0];
     const inputsPerMin = stage.recipe.inputs.map((stack) => machines * stack.perMin);
     const outputPerMin = machines * (output?.perMin ?? 0);
-    const drawnPerMin = counted?.drawn[index] ?? 0;
-    const surplusPerMin =
-      drawnPerMin > 0 && outputPerMin > drawnPerMin + SURPLUS_EPSILON ? outputPerMin - drawnPerMin : 0;
+    const drawnPerMin = counted.drawn[index] ?? 0;
     const shape = laidShape(belts[index], stage.recipe, belt.perMin, machines);
+    const beltCarry = shape.doubled && shape.fatIsOutput ? belt.perMin * 2 : belt.perMin;
+    const wanted = drawnPerMin > SURPLUS_EPSILON ? Math.min(drawnPerMin, outputPerMin) : outputPerMin;
+    const kept = Math.min(wanted, beltCarry);
+    const overflow = outputPerMin - kept;
+    const surplusPerMin = overflow > SURPLUS_EPSILON ? overflow : 0;
     return {
       stageId: stage.id,
       recipeId: stage.recipeId,
