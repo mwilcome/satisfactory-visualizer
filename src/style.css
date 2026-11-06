@@ -36,6 +36,132 @@ body {
   pointer-events: none;
 }
 
+#layers {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 4;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  max-width: min(320px, calc(100% - 24px));
+}
+
+#layers span {
+  align-self: center;
+  margin-right: 2px;
+  color: var(--ink);
+  font-size: 12px;
+  text-shadow: 0 1px 2px rgba(22, 24, 26, 0.8);
+}
+
+#layers label,
+#labels-more {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 8px;
+  background: rgba(22, 24, 26, 0.9);
+  border: 1px solid rgba(244, 239, 228, 0.2);
+  color: var(--ink);
+  font: 600 12px/1 "Segoe UI", sans-serif;
+  cursor: pointer;
+}
+
+#layers label:has(input:checked),
+#labels-more[aria-expanded="true"] {
+  border-color: var(--amber);
+}
+
+#layers input {
+  margin: 0;
+  accent-color: var(--amber);
+}
+
+#labels-more {
+  padding: 4px 7px;
+}
+
+#label-groups {
+  flex: 1 0 100%;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+#label-groups[hidden] {
+  display: none;
+}
+
+#floors {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 2;
+  max-width: min(440px, calc(100% - 24px));
+  max-height: calc(100% - 24px);
+  overflow: auto;
+  padding: 10px 12px;
+  background: rgba(22, 24, 26, 0.9);
+  border: 1px solid rgba(244, 239, 228, 0.2);
+}
+
+#floors p {
+  margin: 0 0 4px;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+#floors .floors-rate {
+  margin-bottom: 8px;
+  font: 650 16px/1.2 ui-monospace, "Cascadia Code", monospace;
+}
+
+#floors .floors-note {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+#detail {
+  position: absolute;
+  left: 16px;
+  top: 16px;
+  z-index: 3;
+  width: 280px;
+  padding: 12px 14px;
+  background: rgba(22, 24, 26, 0.94);
+  border: 1px solid rgba(244, 239, 228, 0.2);
+  color: var(--ink);
+}
+
+#detail header {
+  margin: -12px -14px 8px;
+  padding: 8px 14px;
+  cursor: grab;
+  background: rgba(244, 239, 228, 0.08);
+  user-select: none;
+}
+
+#detail header:active {
+  cursor: grabbing;
+}
+
+#detail h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+#detail p {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .tag {
   font: 600 12px/1.2 "Segoe UI", sans-serif;
   color: #1c1408;
@@ -183,6 +309,15 @@ legend {
   border-color: var(--amber);
 }
 
+.marks label:has(input:disabled) {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.marks label:has(input:disabled) input {
+  cursor: not-allowed;
+}
+
 #summary {
   padding-top: 4px;
 }
@@ -225,17 +360,6 @@ legend {
   display: block;
   font-size: 13px;
   color: var(--muted);
-}
-
-#generate {
-  width: 100%;
-  margin: 0 0 14px;
-  padding: 10px 12px;
-  border: 0;
-  background: var(--amber);
-  color: var(--amber-ink);
-  font: 650 15px/1 "Segoe UI", sans-serif;
-  cursor: pointer;
 }
 
 #item-list [aria-disabled="true"] {

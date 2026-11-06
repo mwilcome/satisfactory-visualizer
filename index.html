@@ -7,7 +7,25 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <div id="viewport"></div>
+    <div id="viewport">
+      <section id="floors" hidden aria-label="Floors"></section>
+      <aside id="detail" hidden></aside>
+      <div id="layers" role="group" aria-label="Show">
+        <span>Show</span>
+        <label><input id="labels-toggle" type="checkbox" /> Labels</label>
+        <button id="labels-more" type="button" aria-expanded="false" aria-controls="label-groups" aria-label="Label groups">▾</button>
+        <label><input type="checkbox" data-layer="floors" checked /> Floors</label>
+        <label><input type="checkbox" data-layer="card" checked /> Card</label>
+        <div id="label-groups" role="group" aria-label="Label groups" hidden>
+          <label><input type="checkbox" data-layer="ends" checked /> Ends</label>
+          <label><input type="checkbox" data-layer="inputs" checked /> Inputs</label>
+          <label><input type="checkbox" data-layer="outputs" checked /> Outputs</label>
+          <label><input type="checkbox" data-layer="buffers" checked /> Buffers</label>
+          <label><input type="checkbox" data-layer="overflow" checked /> Overflow</label>
+          <label><input type="checkbox" data-layer="notes" checked /> Notes</label>
+        </div>
+      </div>
+    </div>
     <aside id="panel">
       <p class="eyebrow">Satisfactory visualizer</p>
       <h1 id="title">Screws</h1>
@@ -27,7 +45,7 @@
         <ul id="item-list" role="listbox" hidden></ul>
       </div>
       <fieldset id="alt-field">
-        <legend>Alt recipes</legend>
+        <legend>Recipes</legend>
         <label class="save-row">
           Save
           <input id="save-file" type="file" accept=".sav,application/octet-stream" />
@@ -38,6 +56,10 @@
           <label><input type="radio" name="alt-mode" value="save" /> Unlocked in save</label>
         </div>
         <input id="alt-search" type="search" placeholder="Search alts" autocomplete="off" />
+        <label class="save-row">
+          <input id="alt-item-only" type="checkbox" />
+          <span id="alt-item-only-label">This item only</span>
+        </label>
         <div id="alts"></div>
       </fieldset>
       <fieldset>
@@ -49,9 +71,8 @@
           <label><input type="radio" name="mk" value="4" /> Mk4 · 480</label>
         </div>
       </fieldset>
-      <button id="generate" type="button">Generate</button>
       <div id="summary" aria-live="polite"></div>
-      <p class="hint">Drag to orbit. Scroll to zoom. No walking camera yet.</p>
+      <p class="hint">Drag to orbit. Scroll to zoom. Click a machine for its recipe, then drag the card by its title. Labels starts off. The arrow beside it chooses which tags come back. No walking camera yet.</p>
     </aside>
     <script type="module" src="/src/main.ts"></script>
   </body>

@@ -7,6 +7,7 @@ import {
   BUFFER_PARTS,
   CONSTRUCTOR_PARTS,
   FOUNDRY_PARTS,
+  MANUFACTURER_PARTS,
   MERGER_PARTS,
   SMART_SPLITTER_PARTS,
   SMELTER_PARTS,
@@ -15,6 +16,25 @@ import {
   type SolidPart,
 } from "../data/parts";
 import type { Plant, Solid, Vec3 } from "../layout/types";
+
+export type PickHandler = (solid: Solid | null) => void;
+
+/** World-tag groups. Ends, item ports, storage, overflow, and underfed notes. */
+export const LABEL_LAYERS = ["ends", "inputs", "outputs", "buffers", "overflow", "notes"] as const;
+export type LabelLayer = (typeof LABEL_LAYERS)[number];
+
+export function isLabelLayer(value: string): value is LabelLayer {
+  return (LABEL_LAYERS as readonly string[]).includes(value);
+}
+
+function labelLayer(text: string): LabelLayer {
+  if (text === "Open end" || text === "Feed end") return "ends";
+  if (text === "Smart splitter" || text === "Any" || text.startsWith("Overflow")) return "overflow";
+  if (text === "Bank" || text.endsWith("buffer")) return "buffers";
+  if (text.endsWith(" in")) return "inputs";
+  if (text.endsWith(" out")) return "outputs";
+  return "notes";
+}
 
 const BELT_H = 1;
 const BELT_W = 2;
@@ -34,10 +54,18 @@ export class FactoryView {
   private readonly supportMat: THREE.MeshStandardMaterial;
   private readonly prototypes: Map<string, THREE.Group>;
   private plant: THREE.Group | null = null;
+  private highlight: THREE.Box3Helper | null = null;
+  private readonly host: HTMLElement;
   private readonly sun: THREE.DirectionalLight;
+  private readonly raycaster = new THREE.Raycaster();
+  private readonly projected = new THREE.Vector3();
   private disposed = false;
+  private readonly labelShown = new Map<LabelLayer, boolean>(LABEL_LAYERS.map((layer) => [layer, false]));
+  onPick: PickHandler | null = null;
+  onFrame: (() => void) | null = null;
 
   constructor(host: HTMLElement) {
+    this.host = host;
     const canvas = document.createElement("canvas");
     canvas.id = "factory-canvas";
     host.append(canvas);
@@ -103,6 +131,7 @@ export class FactoryView {
       ["constructor", groupFromParts(CONSTRUCTOR_PARTS, this.materials)],
       ["assembler", groupFromParts(ASSEMBLER_PARTS, this.materials)],
       ["foundry", groupFromParts(FOUNDRY_PARTS, this.materials)],
+      ["manufacturer", groupFromParts(MANUFACTURER_PARTS, this.materials)],
       ["splitter", groupFromParts(SPLITTER_PARTS, this.materials)],
       ["merger", groupFromParts(MERGER_PARTS, this.materials)],
       ["buffer", groupFromParts(BUFFER_PARTS, this.materials)],
@@ -132,11 +161,13 @@ export class FactoryView {
     this.resize(host);
     const observer = new ResizeObserver(() => this.resize(host));
     observer.observe(host);
+    this.bindPick(canvas);
 
     const tick = () => {
       if (this.disposed) return;
       requestAnimationFrame(tick);
       this.controls.update();
+      this.onFrame?.();
       this.renderer.render(this.scene, this.camera);
       this.labels.render(this.scene, this.camera);
     };
@@ -147,7 +178,39 @@ export class FactoryView {
     this.releasePlant();
   }
 
-  show(plant: Plant): void {
+  /** Amber box around the machine. Returns a point above it for the card. */
+  focusMachine(solid: Solid | null): Vec3 | null {
+    this.clearHighlight();
+    if (!solid || !this.plant) return null;
+    const anchor = this.plant.children.find((child) => child.userData.pick === solid);
+    if (!anchor) return null;
+    const box = new THREE.Box3().setFromObject(anchor).expandByScalar(0.3);
+    const helper = new THREE.Box3Helper(box, 0xf0a202);
+    this.scene.add(helper);
+    this.highlight = helper;
+    const center = box.getCenter(new THREE.Vector3());
+    return { x: center.x, y: box.max.y, z: center.z };
+  }
+
+  /** Host-relative pixels. visible is false when the point is outside the clip volume. */
+  project(point: Vec3): { x: number; y: number; visible: boolean } {
+    this.projected.set(point.x, point.y, point.z).project(this.camera);
+    const width = this.host.clientWidth || 1;
+    const height = this.host.clientHeight || 1;
+    return {
+      x: (this.projected.x * 0.5 + 0.5) * width,
+      y: (-this.projected.y * 0.5 + 0.5) * height,
+      visible: this.projected.z >= -1 && this.projected.z <= 1,
+    };
+  }
+
+  /** Hide or show one group of world tags. Survives the next rebuild. */
+  setLabelLayer(layer: LabelLayer, shown: boolean): void {
+    this.labelShown.set(layer, shown);
+    this.applyLabelLayers();
+  }
+
+  show(plant: Plant, reframe = true): void {
     this.releasePlant();
     const root = new THREE.Group();
     root.name = "plant";
@@ -160,10 +223,25 @@ export class FactoryView {
     this.addLabels(root, plant);
     this.scene.add(root);
     this.plant = root;
-    this.frame(root);
+    this.applyLabelLayers();
+    this.frame(root, reframe);
+  }
+
+  private clearHighlight(): void {
+    if (!this.highlight) return;
+    this.scene.remove(this.highlight);
+    this.highlight.geometry.dispose();
+    const material = this.highlight.material;
+    if (Array.isArray(material)) {
+      for (const item of material) item.dispose();
+    } else {
+      material.dispose();
+    }
+    this.highlight = null;
   }
 
   private releasePlant(): void {
+    this.clearHighlight();
     if (!this.plant) return;
     this.plant.traverse((obj) => {
       if (obj instanceof CSS2DObject) obj.element.remove();
@@ -171,6 +249,29 @@ export class FactoryView {
     this.scene.remove(this.plant);
     disposeTree(this.plant);
     this.plant = null;
+  }
+
+  private bindPick(canvas: HTMLCanvasElement): void {
+    let downX = 0;
+    let downY = 0;
+    canvas.addEventListener("pointerdown", (event) => {
+      downX = event.clientX;
+      downY = event.clientY;
+    });
+    canvas.addEventListener("pointerup", (event) => {
+      if (Math.hypot(event.clientX - downX, event.clientY - downY) > 5) return;
+      const rect = canvas.getBoundingClientRect();
+      const ndc = new THREE.Vector2(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1,
+      );
+      this.raycaster.setFromCamera(ndc, this.camera);
+      const hits = this.plant ? this.raycaster.intersectObject(this.plant, true) : [];
+      const solid = hits
+        .map((hit) => hit.object.userData.pick as Solid | undefined)
+        .find((pick) => pick?.kind === "machine");
+      this.onPick?.(solid ?? null);
+    });
   }
 
   private resize(host: HTMLElement): void {
@@ -182,18 +283,20 @@ export class FactoryView {
     this.labels.setSize(width, height);
   }
 
-  private frame(root: THREE.Object3D): void {
+  private frame(root: THREE.Object3D, moveCamera: boolean): void {
     const box = new THREE.Box3().setFromObject(root);
     const center = box.getCenter(new THREE.Vector3());
     const sphere = box.getBoundingSphere(new THREE.Sphere());
-    const target = new THREE.Vector3(center.x, box.min.y + Math.min(8, sphere.radius * 0.15), center.z);
-    const direction = new THREE.Vector3(-0.72, 0.48, -0.9).normalize();
-    const vFov = THREE.MathUtils.degToRad(this.camera.fov);
-    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * this.camera.aspect);
-    const dist = (sphere.radius / Math.sin(Math.min(vFov, hFov) / 2)) * 1.18;
-    this.camera.position.copy(target).addScaledVector(direction, dist);
-    this.controls.target.copy(target);
-    this.controls.update();
+    if (moveCamera) {
+      const target = new THREE.Vector3(center.x, box.min.y + Math.min(8, sphere.radius * 0.15), center.z);
+      const direction = new THREE.Vector3(-0.72, 0.48, -0.9).normalize();
+      const vFov = THREE.MathUtils.degToRad(this.camera.fov);
+      const hFov = 2 * Math.atan(Math.tan(vFov / 2) * this.camera.aspect);
+      const dist = (sphere.radius / Math.sin(Math.min(vFov, hFov) / 2)) * 1.18;
+      this.camera.position.copy(target).addScaledVector(direction, dist);
+      this.controls.target.copy(target);
+      this.controls.update();
+    }
     const span = sphere.radius * 1.4;
     const shadow = this.sun.shadow.camera;
     shadow.left = -span;
@@ -234,6 +337,7 @@ export class FactoryView {
       if (!proto) continue;
       const mesh = proto.clone(true);
       placeBase(mesh, solid);
+      tagPick(mesh, solid);
       root.add(mesh);
     }
   }
@@ -284,9 +388,20 @@ export class FactoryView {
       div.className = "tag";
       div.textContent = label.text;
       const obj = new CSS2DObject(div);
+      obj.userData.labelLayer = labelLayer(label.text);
       obj.position.set(label.position.x, label.position.y, label.position.z);
       root.add(obj);
     }
+  }
+
+  private applyLabelLayers(): void {
+    if (!this.plant) return;
+    this.plant.traverse((object) => {
+      if (!(object instanceof CSS2DObject)) return;
+      const layer = object.userData.labelLayer as LabelLayer | undefined;
+      if (!layer) return;
+      object.visible = this.labelShown.get(layer) !== false;
+    });
   }
 }
 
@@ -312,6 +427,12 @@ function groupFromParts(
 
 function placeBase(group: THREE.Object3D, solid: Solid): void {
   group.position.set(solid.base.x, solid.base.y, solid.base.z);
+}
+
+function tagPick(root: THREE.Object3D, solid: Solid): void {
+  root.traverse((obj) => {
+    obj.userData.pick = solid;
+  });
 }
 
 function beltMesh(

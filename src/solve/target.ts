@@ -11,8 +11,14 @@ import {
 import type { InputSource, WiredStage } from "../data/chains";
 import { solveWired, type ChainPlan } from "./chain";
 
-const SUPPORTED = new Set(["smelter", "constructor", "foundry", "assembler"]);
-const MACHINE_RANK: Record<string, number> = { smelter: 0, constructor: 1, foundry: 2, assembler: 3 };
+const SUPPORTED = new Set(["smelter", "constructor", "foundry", "assembler", "manufacturer"]);
+const MACHINE_RANK: Record<string, number> = {
+  smelter: 0,
+  constructor: 1,
+  foundry: 2,
+  assembler: 3,
+  manufacturer: 4,
+};
 
 /** Recipes that output this item, standard one first. */
 export function recipesFor(itemId: string): Recipe[] {
@@ -26,9 +32,13 @@ export function standardRecipe(itemId: string): Recipe | undefined {
   const supported = all.filter((recipe) => SUPPORTED.has(recipe.buildingId) && !recipe.alternate);
   const pool = supported.length > 0 ? supported : all.filter((recipe) => !recipe.alternate);
   const pick = pool.length > 0 ? pool : all;
-  return [...pick].sort(
-    (a, b) => (MACHINE_RANK[a.buildingId] ?? 9) - (MACHINE_RANK[b.buildingId] ?? 9) || a.name.localeCompare(b.name),
-  )[0];
+  // Several standard recipes for one item: start from the smallest batch.
+  // Biomass then opens on Leaves. Wood, Mycelia, and Alien Protein stay in the list.
+  return [...pick].sort((a, b) => {
+    const byOutput = (a.outputs[0]?.perMin ?? 0) - (b.outputs[0]?.perMin ?? 0);
+    if (Math.abs(byOutput) > 1e-9) return byOutput;
+    return (MACHINE_RANK[a.buildingId] ?? 9) - (MACHINE_RANK[b.buildingId] ?? 9) || a.name.localeCompare(b.name);
+  })[0];
 }
 
 export interface RecipeChoice {
@@ -124,7 +134,7 @@ export function recipePlaceable(recipe: Recipe): boolean {
 
 /**
  * An item is selectable when some combination of placeable recipes builds it.
- * The player's current alt picks are applied later, at Generate.
+ * The player's current alt picks are applied when the plant rebuilds.
  */
 export function supportedItemIds(): Set<string> {
   const known = new Map<string, boolean>();
@@ -185,19 +195,35 @@ export interface AltEntry {
   placeable: boolean;
 }
 
-/** Every alternate in the snapshot. Ones this phase cannot place stay listed. */
+/** Alternates, plus every standard recipe when an item has more than one. */
 export function altEntries(): AltEntry[] {
-  return Object.values(RECIPES)
-    .filter((recipe) => recipe.alternate)
+  const supported = supportedItemIds();
+  const recipes = Object.values(RECIPES);
+  const standardCount = new Map<string, number>();
+  for (const recipe of recipes) {
+    if (recipe.alternate) continue;
+    const itemId = recipe.outputs[0]?.itemId ?? "";
+    standardCount.set(itemId, (standardCount.get(itemId) ?? 0) + 1);
+  }
+  return recipes
+    .filter((recipe) => {
+      if (recipe.alternate) return true;
+      const itemId = recipe.outputs[0]?.itemId ?? "";
+      return (standardCount.get(itemId) ?? 0) > 1;
+    })
     .map((recipe) => {
       const itemId = recipe.outputs[0]?.itemId ?? "";
+      const inputsOk = recipe.inputs.every((input) => {
+        const item = ITEMS[input.itemId];
+        return !!item && !item.fluid && (item.raw || supported.has(input.itemId));
+      });
       return {
         id: recipe.id,
         name: recipe.name,
         itemId,
         itemName: ITEMS[itemId]?.name ?? itemId,
         className: recipe.className,
-        placeable: recipePlaceable(recipe),
+        placeable: unsupported(recipe) === null && inputsOk,
       };
     })
     .sort((a, b) => a.itemName.localeCompare(b.itemName) || a.name.localeCompare(b.name));
@@ -212,7 +238,7 @@ function expand(
 ): string | null {
   if (out.length > 40) return "This chain is too deep to lay out.";
   const item = ITEMS[itemId];
-  if (!item) return `${itemId} is outside the Smelter, Constructor, Foundry, and Assembler set.`;
+  if (!item) return `${itemId} is outside the buildings this layout can place.`;
   if (item.fluid) return `${item.name} is a fluid. Pipes are not in this layout.`;
   const picked = chosen[itemId];
   const forced = picked ? RECIPES[picked] : undefined;
@@ -243,12 +269,15 @@ function expand(
 }
 
 function unsupported(recipe: Recipe): string | null {
+  if (recipe.inputs.some((input) => ITEMS[input.itemId]?.fluid) || recipe.outputs.some((output) => ITEMS[output.itemId]?.fluid)) {
+    return `${recipe.name} needs a fluid. Pipes are not in this layout.`;
+  }
   if (!SUPPORTED.has(recipe.buildingId)) {
-    return `${recipe.name} uses a ${recipe.buildingId}. This layout is Smelter, Constructor, Foundry, and Assembler.`;
+    return `${recipe.name} uses a ${recipe.buildingId}. This layout is Smelter, Constructor, Foundry, Assembler, and Manufacturer.`;
   }
   if (recipe.outputs.length !== 1) return `${recipe.name} has more than one output.`;
-  if (recipe.inputs.length < 1 || recipe.inputs.length > 2) {
-    return `${recipe.name} has ${recipe.inputs.length} inputs. This layout uses one or two.`;
+  if (recipe.inputs.length < 1 || recipe.inputs.length > 4) {
+    return `${recipe.name} has ${recipe.inputs.length} inputs. This layout uses one to four.`;
   }
   return null;
 }
