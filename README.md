@@ -56,7 +56,7 @@ Heavy Modular Frame and its alts are in the list. They need a Manufacturer, so t
 - Footprints: Smelter 5×10×8.5, Constructor 8×10×8.5, Foundry 10×10×9, Assembler 9×16×11. The innermost input keeps a 1 m belt pad; each lower lane adds 1 m. Splitters and mergers are 4×4×1. Lifts are 2×2.
 - Feed end: ore belt in, a lift and buffer between floors, product belt out, player ramp. The ramp does not cross the manifolds or the open end.
 - Open end: empty foundation and an input-belt stub. Nothing terminates there.
-- Machines pack on a 1 m stride with at least a 2 m walk gap. The first machine in a row stays on the manifold line. Each later machine, with its splitters and merger, sits 1 m tighter toward the output side, and the manifold jogs so every belt stays axis-aligned. Foundations stay 8×8. There is no side-walkway spine.
+- Machines pack on a 1 m stride with at least a 2 m walk gap, in one straight line. Foundations stay 8×8. There is no side-walkway spine.
 - Ore is an input belt. Miners are not placed. Power is not drawn.
 
 Chains live in `src/data/chains.ts`. The belt solver is `src/solve/chain.ts`. Layout is one manifold row per stage in `src/layout/plant.ts`. A stage with two inputs still occupies one row; the extra input is a second lane on that row.

@@ -31,9 +31,8 @@ import type { Belt, Floor, Plant, PlantLabel, Ramp, Solid, Vec3, WalkCorridor } 
  * Foundations are 8×8×1. Players walk the gaps between machines.
  * Power poles and miners are not placed.
  *
- * Coordinates are meters. Machines pack on a 1 m stride. Foundations stay 8×8.
- * Index 0 stays on the manifold line so the feed belts do not move. Each later
- * machine, with its splitters and merger, sits 1 m tighter toward +z.
+ * Coordinates are meters. Machines pack on a 1 m stride and stay in one
+ * straight line. Foundations stay 8×8.
  * A second input is not another foundation out: it is 1 m farther from the
  * machine and 2 m higher than the lane inside it. No conveyor lift sits between
  * those splitters.
@@ -153,7 +152,7 @@ export function buildChainPlant(plan: ChainPlan): Plant {
     } satisfies RowSpec;
   });
 
-  const skirtZ = Math.max(...rows.map((row) => row.mergerZ + Math.max(0, row.count - 1)));
+  const skirtZ = Math.max(...rows.map((row) => row.mergerZ));
 
   const draft: Draft = {
     mk: plan.beltMk,
@@ -273,11 +272,6 @@ function strideMeters(machineWidth: number): number {
   return Math.ceil(machineWidth + MIN_WALK);
 }
 
-/** Index 0 stays on the manifold line. Each later machine sits 1 m tighter (+z). */
-function stickInwardM(index: number): number {
-  return index;
-}
-
 function feedFaceX(width: number): number {
   return width / 2 - SPLIT / 2;
 }
@@ -337,25 +331,6 @@ function addBelt(
   draft.belts.push({ id, from, to, mk: draft.mk, ...fields });
 }
 
-/** Straight run along x. A 1 m stick between stations becomes an x-z-x jog. */
-function addJoggedBelt(
-  draft: Draft,
-  id: string,
-  from: Vec3,
-  to: Vec3,
-  fields: Omit<Belt, "id" | "from" | "to" | "mk">,
-): void {
-  if (Math.abs(from.y - to.y) > 1e-6) throw new Error(`Belt ${id} changes height in a manifold jog.`);
-  if (Math.abs(from.z - to.z) <= 1e-6) {
-    addBelt(draft, id, from, to, fields);
-    return;
-  }
-  const mid = (from.x + to.x) / 2;
-  addBelt(draft, `${id}-x0`, from, { x: mid, y: from.y, z: from.z }, fields);
-  addBelt(draft, `${id}-z`, { x: mid, y: from.y, z: from.z }, { x: mid, y: to.y, z: to.z }, fields);
-  addBelt(draft, `${id}-x1`, { x: mid, y: to.y, z: to.z }, to, fields);
-}
-
 function rowFaceX(row: RowSpec): number {
   return feedFaceX(BUILDINGS[row.buildingId].width);
 }
@@ -365,10 +340,9 @@ function layRow(draft: Draft, row: RowSpec, openEndX: number, apron: number): vo
   const yWalk = walkY(row.floor);
   const yBelt = beltCenterY(row.floor);
   const stubIx = Math.ceil(openEndX / TILE);
-  const maxShift = Math.max(0, row.count - 1);
   const zMin = Math.min(...row.laneZ, row.mergerZ) - SPLIT;
-  const zMax = Math.max(...row.laneZ, row.mergerZ, row.outputFaceZ) + maxShift + SPLIT;
-  const farZ = row.mergerZ + maxShift + TILE;
+  const zMax = Math.max(...row.laneZ, row.mergerZ, row.outputFaceZ) + SPLIT;
+  const farZ = row.mergerZ + TILE;
   fillPad(
     draft,
     row.floor,
@@ -381,12 +355,9 @@ function layRow(draft: Draft, row: RowSpec, openEndX: number, apron: number): vo
   const multi = row.inputCount > 1;
 
   for (let index = 0; index < row.count; index += 1) {
-    const shift = stickInwardM(index);
     const x = machineCenterX(index, row.strideM, building.width);
-    const machineZ = row.machineZ + shift;
-    const mergerZ = row.mergerZ + shift;
-    const portInZ = machineZ - row.length / 2;
-    const portOutZ = machineZ + row.length / 2;
+    const portInZ = row.inputFaceZ;
+    const portOutZ = row.outputFaceZ;
     draft.solids.push({
       id: `${row.id}-m-${index}`,
       kind: "machine",
@@ -396,12 +367,12 @@ function layRow(draft: Draft, row: RowSpec, openEndX: number, apron: number): vo
       buildingId: row.buildingId,
       recipeId: row.recipeId,
       clock: 100,
-      base: { x, y: yWalk, z: machineZ },
+      base: { x, y: yWalk, z: row.machineZ },
       size: { x: building.width, y: building.height, z: building.length },
     });
     for (let lane = 0; lane < row.inputCount; lane += 1) {
       const input = row.inputs[lane];
-      const z = (row.laneZ[lane] ?? INPUT_Z) + shift;
+      const z = row.laneZ[lane] ?? INPUT_Z;
       const suffix = multi ? `-l${lane}` : "";
       draft.solids.push({
         id: `${row.id}-sp-${index}${suffix}`,
@@ -440,32 +411,30 @@ function layRow(draft: Draft, row: RowSpec, openEndX: number, apron: number): vo
       floorId: row.floor.id,
       rowId: row.id,
       rowIndex: index,
-      base: { x, y: yWalk, z: mergerZ },
+      base: { x, y: yWalk, z: row.mergerZ },
       size: { x: SPLIT, y: BUILDINGS.merger.height, z: SPLIT },
     });
     addBelt(
       draft,
       `${row.id}-out-port-${index}`,
       { x, y: yBelt, z: portOutZ },
-      { x, y: yBelt, z: mergerZ - SPLIT / 2 },
+      { x, y: yBelt, z: row.mergerZ - SPLIT / 2 },
       { itemId: row.outputItem, role: "output-port", rowId: row.id, designPerMin: row.outputPerMin },
     );
 
     if (index < row.count - 1) {
       const next = machineCenterX(index + 1, row.strideM, building.width);
-      const nextShift = stickInwardM(index + 1);
       const downstream = row.count - index - 1;
       for (let lane = 0; lane < row.inputCount; lane += 1) {
         const input = row.inputs[lane];
-        const z = (row.laneZ[lane] ?? INPUT_Z) + shift;
-        const nextZ = (row.laneZ[lane] ?? INPUT_Z) + nextShift;
+        const z = row.laneZ[lane] ?? INPUT_Z;
         const suffix = multi ? `-l${lane}` : "";
         const y = laneBeltY(row.floor, lane);
-        addJoggedBelt(
+        addBelt(
           draft,
           `${row.id}-in-run-${index}${suffix}`,
           { x: x + SPLIT / 2, y, z },
-          { x: next - SPLIT / 2, y, z: nextZ },
+          { x: next - SPLIT / 2, y, z },
           {
             itemId: input?.itemId ?? row.inputItem,
             role: "input-manifold",
@@ -474,11 +443,11 @@ function layRow(draft: Draft, row: RowSpec, openEndX: number, apron: number): vo
           },
         );
       }
-      addJoggedBelt(
+      addBelt(
         draft,
         `${row.id}-out-run-${index}`,
-        { x: next - SPLIT / 2, y: yBelt, z: row.mergerZ + nextShift },
-        { x: x + SPLIT / 2, y: yBelt, z: mergerZ },
+        { x: next - SPLIT / 2, y: yBelt, z: row.mergerZ },
+        { x: x + SPLIT / 2, y: yBelt, z: row.mergerZ },
         {
           itemId: row.outputItem,
           role: "output-manifold",
@@ -501,11 +470,10 @@ function layRow(draft: Draft, row: RowSpec, openEndX: number, apron: number): vo
   }
 
   const lastX = machineCenterX(row.count - 1, row.strideM, building.width);
-  const lastShift = stickInwardM(row.count - 1);
   const stubEndX = (stubIx + 1) * TILE;
   for (let lane = 0; lane < row.inputCount; lane += 1) {
     const input = row.inputs[lane];
-    const z = (row.laneZ[lane] ?? INPUT_Z) + lastShift;
+    const z = row.laneZ[lane] ?? INPUT_Z;
     const suffix = multi ? `-l${lane}` : "";
     addBelt(
       draft,
